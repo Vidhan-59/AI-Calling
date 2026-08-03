@@ -1,0 +1,45 @@
+entry: greet
+nodes:
+  greet:
+    objective: >
+      Greet very briefly, confirm you are speaking to the named operator.
+      This whole call should be thirty seconds - do not linger here.
+    collect: [identity_verified]
+    transitions:
+      - when: "identity_verified == true"
+        goto: check_status
+      - when: "identity_verified == false"
+        goto: wrong_person
+      - when: "reprompts >= 1"
+        goto: log_exception
+
+  check_status:
+    objective: >
+      Remind them their punch-out is not recorded. Ask if they've already
+      left site or are still working. Thank them for the shift before you
+      close, whichever it is.
+    tools: [log_attendance_exception]
+    collect: [punch_out_status]
+    transitions:
+      - when: "punch_out_status == \"left_site\""
+        goto: close_thanks
+      - when: "punch_out_status == \"still_working\""
+        goto: close_thanks
+      - when: "reprompts >= 1"
+        goto: close_thanks
+
+  wrong_person:
+    objective: Apologise briefly for the interruption, end the call.
+    transitions: []
+
+  log_exception:
+    objective: Log this as unclear and let the supervisor regularise it, close.
+    tools: [log_attendance_exception, end_call]
+    transitions: []
+
+  close_thanks:
+    objective: Thank them for the shift and close.
+    tools: [end_call]
+    transitions: []
+
+terminal_nodes: [wrong_person, log_exception, close_thanks]

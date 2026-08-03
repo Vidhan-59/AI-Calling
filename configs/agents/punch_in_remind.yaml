@@ -1,0 +1,52 @@
+id: punch_in_remind
+version: 1
+display_name: Punch-In Reminder
+languages: [hi, gu, en]
+default_language: hi
+
+voice:
+  hi: { provider: sarvam, voice_id: meera, speed: 1.0 }
+  gu: { provider: azure, voice_id: gu-IN-DhwaniNeural, speed: 0.95 }
+  en: { provider: elevenlabs, voice_id: "21m00Tcm4TlvDq8ikWAM", speed: 1.0 }
+
+llm:
+  conversation: { model: claude-haiku-4-5, max_tokens: 150, temperature: 0.4 }
+  supervisor: { model: claude-sonnet-5, enabled: true }
+
+persona_file: prompts/agents/punch_in_remind/persona.j2
+flow: flows/punch_in_remind.yaml
+
+tools:
+  - lookup_roster
+  - log_attendance_exception
+  - mark_absence_intent
+  - schedule_callback
+  - transfer_to_human
+  - end_call
+
+guardrails:
+  - no_wage_discussion
+  - no_disciplinary_threat
+  - no_third_party_employee_data
+  - disclose_ai_and_recording
+  - hallucination_guard
+
+limits:
+  max_duration_sec: 90
+  max_turns: 14
+  max_reprompts_per_slot: 2
+
+retry:
+  attempts: 2
+  backoff: ["10m", "30m"]
+  on_no_answer: sms_fallback
+
+# Punch-in reminders fire at T+30m into a shift that may have started at
+# night (the DDNNOO cycle includes night shifts) - a 07:00-21:00 window
+# would silently skip half the night-shift population. Widened here;
+# confirm with legal/compliance whether TCCCPR treats this as an
+# employee-transactional call exempt from the standard window (Sec 10 of
+# 01_MASTER_ARCHITECTURE.md flags this as still open).
+calling_window: { start: "00:00", end: "23:59", tz: "Asia/Kolkata" }
+
+success_slots: [identity_verified, attendance_status]

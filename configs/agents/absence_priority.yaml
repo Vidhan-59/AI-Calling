@@ -1,0 +1,49 @@
+id: absence_priority
+version: 1
+display_name: Absence Prediction Priority Call
+languages: [hi, gu, en]
+default_language: hi
+
+voice:
+  hi: { provider: sarvam, voice_id: meera, speed: 0.95 }
+  gu: { provider: azure, voice_id: gu-IN-DhwaniNeural, speed: 0.9 }
+  en: { provider: elevenlabs, voice_id: "21m00Tcm4TlvDq8ikWAM", speed: 0.95 }
+
+llm:
+  conversation: { model: claude-haiku-4-5, max_tokens: 150, temperature: 0.5 }
+  supervisor: { model: claude-sonnet-5, enabled: true }
+
+persona_file: prompts/agents/absence_priority/persona.j2
+flow: flows/absence_priority.yaml
+
+tools:
+  - lookup_roster
+  - mark_absence_intent
+  - schedule_callback
+  - send_sms_fallback
+  - transfer_to_agent
+  - transfer_to_human
+  - end_call
+
+guardrails:
+  - no_wage_discussion
+  - no_leave_approval
+  - no_disciplinary_threat
+  - no_medical_advice
+  - no_third_party_employee_data
+  - disclose_ai_and_recording
+  - hallucination_guard
+
+limits:
+  max_duration_sec: 240
+  max_turns: 30
+  max_reprompts_per_slot: 2
+
+retry:
+  attempts: 2
+  backoff: ["30m", "3h"]
+  on_no_answer: sms_fallback
+
+calling_window: { start: "07:00", end: "21:00", tz: "Asia/Kolkata" }
+
+success_slots: [identity_verified, attendance_intent]

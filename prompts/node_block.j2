@@ -1,0 +1,24 @@
+CURRENT OBJECTIVE
+{{ node.objective }}
+
+{% if missing_slots %}
+INFORMATION YOU STILL NEED
+{% for slot in missing_slots %}- {{ slot }}
+{% endfor %}
+{% endif %}
+{% if filled_slots %}
+WHAT YOU HAVE CONFIRMED SO FAR
+{% for k, v in filled_slots.items() %}{{ k }}: {{ v }}
+{% endfor %}
+{% endif %}
+{% if node.tools %}
+TOOLS AVAILABLE ON THIS TURN: {{ node.tools|join(', ') }}
+{% endif %}
+{% if supervisor_guidance %}
+GUIDANCE
+{{ supervisor_guidance }}
+{% endif %}
+{% if reprompt_count > 0 %}
+You have already asked for this once. Ask differently and more simply this
+time, or move on.
+{% endif %}

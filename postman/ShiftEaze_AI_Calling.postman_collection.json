@@ -1,0 +1,794 @@
+{
+  "info": {
+    "_postman_id": "8f2c1d40-7b3e-4a56-9c81-shifteaze0001",
+    "name": "ShiftEaze AI Calling",
+    "description": "Five ShiftEaze calling scenarios in English, Hindi and Gujarati.\n\n## Order to work through this\n\n1. **0. Health** — confirm the server is up\n2. **1. Discovery** — see what scenarios exist\n3. **2. Preview** — proof-read the exact spoken lines BEFORE dialling anyone\n4. **3. Test without a phone** — hold a full conversation over HTTP (no Twilio, no tunnel)\n5. **4. Place a real call** — only once 2 and 3 look right\n6. **5. Outcomes** — read back what happened\n\n## Collection variables\n\nEdit these once under the collection's **Variables** tab and every request picks them up:\n\n| Variable | Meaning |\n|---|---|\n| `base_url` | `http://127.0.0.1:8000` for local runs |\n| `to_phone_number` | Who to call, E.164 with country code |\n| `employee_name` | Operator's name as spoken |\n| `terminal` | e.g. `CT3` |\n| `supervisor_name` | Named in escalation replies |\n| `session_id` | Any string; groups a text-test conversation |\n| `call_sid` | Auto-filled after `POST /scenarios/call` |\n\n## Two rules for writing facts\n\nThese strings go straight into a text-to-speech engine.\n\n1. **Never send `14:00`** — send `दोपहर 2` / `બપોરે 2` / `2 in the afternoon`. TTS reads `14:00` as \"fourteen hundred\".\n2. **The Hindi/Gujarati scripts already contain बजे / વાગ્યે** — send `सुबह 8`, NOT `सुबह 8 बजे`, or the operator hears *\"8 baje baje\"*.\n\nUse **2. Preview** to catch exactly this.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://127.0.0.1:8000", "type": "string" },
+    { "key": "to_phone_number", "value": "+919426005911", "type": "string" },
+    { "key": "employee_name", "value": "Amit", "type": "string" },
+    { "key": "terminal", "value": "CT3", "type": "string" },
+    { "key": "supervisor_name", "value": "Suresh", "type": "string" },
+    { "key": "session_id", "value": "postman-test-1", "type": "string" },
+    { "key": "call_sid", "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "0. Health",
+      "item": [
+        {
+          "name": "Health check",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('server is up', () => pm.response.to.have.status(200));",
+                  "pm.test('reports healthy', () => pm.expect(pm.response.json().status).to.eql('healthy'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/", "host": ["{{base_url}}"], "path": [""] },
+            "description": "Should return `{\"status\":\"healthy\"}`. If this fails, the server isn't running — see START_HERE.md."
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. Discovery",
+      "item": [
+        {
+          "name": "List all scenarios",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('all five scenarios present', () => pm.expect(pm.response.json()).to.have.lengthOf(5));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/scenarios", "host": ["{{base_url}}"], "path": ["scenarios"] },
+            "description": "All five scenarios with their ids, languages, branch keys and required facts."
+          }
+        },
+        {
+          "name": "Get one scenario (full knowledge base)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/scenarios/shift_confirm",
+              "host": ["{{base_url}}"],
+              "path": ["scenarios", "shift_confirm"]
+            },
+            "description": "Every script line in all three languages, the keyword hints, the outcome codes, and the `knowledge_base` guardrails the AI works from.\n\nSwap the path segment for: `punch_in_remind`, `absence_priority`, `ot_request`, `punch_out_remind`."
+          }
+        },
+        {
+          "name": "Reload scenarios from disk",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/scenarios/reload",
+              "host": ["{{base_url}}"],
+              "path": ["scenarios", "reload"]
+            },
+            "description": "Re-reads `scenarios/*.json`. Edit a script line or keyword list, hit this, and the very next call uses it — no server restart.\n\nReturns `400` with the specific problem if a JSON is malformed, so a broken script can't half-load."
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Preview (no call placed)",
+      "description": "Renders the exact lines a call would speak, with your facts substituted. Always do this before dialling a real operator.",
+      "item": [
+        {
+          "name": "01 Shift Confirm — Hindi",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"scenario_id\": \"shift_confirm\",\n  \"language\": \"hi\",\n  \"attempt\": 1,\n  \"facts\": {\n    \"employee_name\": \"{{employee_name}}\",\n    \"date\": \"2 अगस्त\",\n    \"time\": \"सुबह 8\",\n    \"shift_name\": \"Day\",\n    \"terminal\": \"{{terminal}}\",\n    \"supervisor_name\": \"{{supervisor_name}}\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/scenarios/preview",
+              "host": ["{{base_url}}"],
+              "path": ["scenarios", "preview"]
+            },
+            "description": "Returns `opening_line`, `silence_reply`, every branch's reply, the `voice` / `tts_language` / `transcription_language`, and any `missing_facts`.\n\nSet `attempt` to `2` to see the follow-up wording from the question script."
+          }
+        },
+        {
+          "name": "01 Shift Confirm — Gujarati",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"scenario_id\": \"shift_confirm\",\n  \"language\": \"gu\",\n  \"attempt\": 1,\n  \"facts\": {\n    \"employee_name\": \"Kiran\",\n    \"date\": \"2 ઓગસ્ટ\",\n    \"time\": \"સવારે 8\",\n    \"shift_name\": \"Day\",\n    \"terminal\": \"{{terminal}}\",\n    \"supervisor_name\": \"{{supervisor_name}}\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/scenarios/preview",
+              "host": ["{{base_url}}"],
+              "path": ["scenarios", "preview"]
+            },
+            "description": "Note the voice changes to `gu-IN-Wavenet-B` — Google TTS has no Neural2 voice for Gujarati, Wavenet is the best available tier."
+          }
+        },
+        {
+          "name": "01 Shift Confirm — English",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"scenario_id\": \"shift_confirm\",\n  \"language\": \"en\",\n  \"attempt\": 1,\n  \"facts\": {\n    \"employee_name\": \"{{employee_name}}\",\n    \"date\": \"2 August\",\n    \"time\": \"8 in the morning\",\n    \"shift_name\": \"Day\",\n    \"terminal\": \"{{terminal}}\",\n    \"supervisor_name\": \"{{supervisor_name}}\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/scenarios/preview",
+              "host": ["{{base_url}}"],
+              "path": ["scenarios", "preview"]
+            }
+          }
+        },
+        {
+          "name": "02 Punch-In Reminder — Hindi",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"scenario_id\": \"punch_in_remind\",\n  \"language\": \"hi\",\n  \"attempt\": 1,\n  \"facts\": {\n    \"employee_name\": \"{{employee_name}}\",\n    \"time\": \"सुबह 8\",\n    \"terminal\": \"{{terminal}}\",\n    \"supervisor_name\": \"{{supervisor_name}}\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/scenarios/preview",
+              "host": ["{{base_url}}"],
+              "path": ["scenarios", "preview"]
+            },
+            "description": "Punch-In needs only `employee_name`, `time`, `terminal`."
+          }
+        },
+        {
+          "name": "03 Absence Priority — Hindi",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"scenario_id\": \"absence_priority\",\n  \"language\": \"hi\",\n  \"attempt\": 1,\n  \"facts\": {\n    \"employee_name\": \"{{employee_name}}\",\n    \"date\": \"5 अगस्त\",\n    \"time\": \"रात 8\",\n    \"terminal\": \"{{terminal}}\",\n    \"supervisor_name\": \"{{supervisor_name}}\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/scenarios/preview",
+              "host": ["{{base_url}}"],
+              "path": ["scenarios", "preview"]
+            },
+            "description": "The most delicate of the five. Its knowledge base forbids revealing that a prediction model flagged this operator — if asked why they were called, the scripted answer is that it's a routine pre-shift check."
+          }
+        },
+        {
+          "name": "04 Overtime Request — Gujarati",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"scenario_id\": \"ot_request\",\n  \"language\": \"gu\",\n  \"attempt\": 1,\n  \"facts\": {\n    \"employee_name\": \"Kiran\",\n    \"terminal\": \"{{terminal}}\",\n    \"shortfall_count\": \"3\",\n    \"duration\": \"8 કલાક\",\n    \"supervisor_name\": \"{{supervisor_name}}\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/scenarios/preview",
+              "host": ["{{base_url}}"],
+              "path": ["scenarios", "preview"]
+            },
+            "description": "OT needs `shortfall_count` (how many people short) and `duration` (shift length, spoken form)."
+          }
+        },
+        {
+          "name": "05 Punch-Out Reminder — Hindi",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"scenario_id\": \"punch_out_remind\",\n  \"language\": \"hi\",\n  \"attempt\": 1,\n  \"facts\": {\n    \"employee_name\": \"{{employee_name}}\",\n    \"terminal\": \"{{terminal}}\",\n    \"supervisor_name\": \"{{supervisor_name}}\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/scenarios/preview",
+              "host": ["{{base_url}}"],
+              "path": ["scenarios", "preview"]
+            },
+            "description": "Shortest of the five — needs only `employee_name` and `terminal`."
+          }
+        },
+        {
+          "name": "Missing-fact rejection (expect 400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('preview still renders but reports the gap', () => pm.response.to.have.status(200));",
+                  "pm.test('missing_facts is populated', () => pm.expect(pm.response.json().missing_facts).to.not.be.empty);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"scenario_id\": \"shift_confirm\",\n  \"language\": \"hi\",\n  \"facts\": {\n    \"employee_name\": \"{{employee_name}}\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/scenarios/preview",
+              "host": ["{{base_url}}"],
+              "path": ["scenarios", "preview"]
+            },
+            "description": "Preview tolerates gaps and reports them in `missing_facts` so you can see what's needed. `POST /scenarios/call` rejects the same payload with `400` — an operator must never hear an unfilled `{date}`."
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Test without a phone",
+      "description": "Drives the identical flow engine over HTTP. No Twilio, no tunnel, no phone — costs only Claude tokens. This is where you verify behaviour.",
+      "item": [
+        {
+          "name": "Turn 1 — Hindi, operator says नहीं",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json();",
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('matched the no branch', () => pm.expect(b.matched_branch).to.eql('no'));",
+                  "pm.test('call stays open to collect the reason', () => pm.expect(b.call_ended).to.be.false);",
+                  "console.log('agent asks:', b.agent_reply);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"scenario_id\": \"shift_confirm\",\n  \"language\": \"hi\",\n  \"session_id\": \"{{session_id}}\",\n  \"facts\": {\n    \"employee_name\": \"{{employee_name}}\",\n    \"date\": \"2 अगस्त\",\n    \"time\": \"सुबह 8\",\n    \"shift_name\": \"Day\",\n    \"terminal\": \"{{terminal}}\",\n    \"supervisor_name\": \"{{supervisor_name}}\"\n  },\n  \"message\": \"नहीं\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/scenarios/test-turn",
+              "host": ["{{base_url}}"],
+              "path": ["scenarios", "test-turn"]
+            },
+            "description": "First call for a `session_id` also returns the `opening_line`.\n\nThe operator gave no reason, so the agent asks for one and the call stays open — run **Turn 2** next with the same `session_id`."
+          }
+        },
+        {
+          "name": "Turn 2 — same session, operator gives the reason",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json();",
+                  "pm.test('call closes', () => pm.expect(b.call_ended).to.be.true);",
+                  "pm.test('outcome recorded', () => pm.expect(b.outcome).to.eql('absent_with_reason'));",
+                  "pm.test('reason captured verbatim', () => pm.expect(b.collected.absence_reason).to.be.a('string').and.not.empty);",
+                  "console.log('captured reason:', b.collected.absence_reason);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"scenario_id\": \"shift_confirm\",\n  \"language\": \"hi\",\n  \"session_id\": \"{{session_id}}\",\n  \"message\": \"मेरे पिताजी की तबीयत खराब है, हॉस्पिटल जाना है\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/scenarios/test-turn",
+              "host": ["{{base_url}}"],
+              "path": ["scenarios", "test-turn"]
+            },
+            "description": "Same `session_id` continues the conversation — `facts` can be omitted, the session remembers them.\n\nThe reason is captured **verbatim** and NOT re-classified as a new branch."
+          }
+        },
+        {
+          "name": "Negation trap — \"haan nahi aa paunga\"",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json();",
+                  "pm.test('opens with haan but classified as no', () => pm.expect(b.matched_branch).to.eql('no'));",
+                  "pm.test('reason auto-extracted, so no second question', () => pm.expect(b.call_ended).to.be.true);",
+                  "console.log('branch:', b.matched_branch, '| collected:', JSON.stringify(b.collected));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"scenario_id\": \"shift_confirm\",\n  \"language\": \"hi\",\n  \"session_id\": \"negation-trap\",\n  \"facts\": {\n    \"employee_name\": \"{{employee_name}}\",\n    \"date\": \"2 अगस्त\",\n    \"time\": \"सुबह 8\",\n    \"shift_name\": \"Day\",\n    \"terminal\": \"{{terminal}}\",\n    \"supervisor_name\": \"{{supervisor_name}}\"\n  },\n  \"message\": \"haan nahi aa paunga yaar, tabiyat kharab hai\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/scenarios/test-turn",
+              "host": ["{{base_url}}"],
+              "path": ["scenarios", "test-turn"]
+            },
+            "description": "**This is the request that shows why the AI matters.**\n\nThe utterance opens with *haan* (yes) but means no. A keyword-matching IVR records the exact opposite answer. The classifier gets it right, and because the reason was volunteered in the same breath it skips the redundant \"tell us why\" question and closes in one turn."
+          }
+        },
+        {
+          "name": "Simulate silence / no answer",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json();",
+                  "pm.test('silence branch', () => pm.expect(b.matched_branch).to.eql('silence'));",
+                  "pm.test('scenario-specific no-answer outcome', () => pm.expect(b.outcome).to.eql('no_response_treated_as_decline'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"scenario_id\": \"absence_priority\",\n  \"language\": \"hi\",\n  \"session_id\": \"silence-test\",\n  \"facts\": {\n    \"employee_name\": \"{{employee_name}}\",\n    \"date\": \"5 अगस्त\",\n    \"time\": \"रात 8\",\n    \"terminal\": \"{{terminal}}\",\n    \"supervisor_name\": \"{{supervisor_name}}\"\n  },\n  \"message\": \"\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/scenarios/test-turn",
+              "host": ["{{base_url}}"],
+              "path": ["scenarios", "test-turn"]
+            },
+            "description": "An empty `message` simulates a timeout / unintelligible audio.\n\nNote each scenario has its own no-answer consequence: Absence Prediction treats silence as a **decline** (replacement begins), whereas Shift Confirmation records `no_response` and notifies the supervisor."
+          }
+        },
+        {
+          "name": "Batch — 01 Shift Confirm, all branches (Hindi)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const turns = pm.response.json().turns;",
+                  "pm.test('every utterance classified', () => turns.forEach(t => pm.expect(t.matched_branch).to.not.eql('unclear')));",
+                  "turns.forEach(t => console.log(t.operator_said, '->', t.matched_branch, '(' + t.outcome + ')'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"scenario_id\": \"shift_confirm\",\n  \"language\": \"hi\",\n  \"facts\": {\n    \"employee_name\": \"{{employee_name}}\",\n    \"date\": \"2 अगस्त\",\n    \"time\": \"सुबह 8\",\n    \"shift_name\": \"Day\",\n    \"terminal\": \"{{terminal}}\",\n    \"supervisor_name\": \"{{supervisor_name}}\"\n  },\n  \"utterances\": [\n    \"हाँ भाई आ जाऊंगा\",\n    \"haan nahi aa paunga yaar, tabiyat kharab hai\",\n    \"ek minute, time kya bola tha aapne?\",\n    \"ye meri duty nahi hai, kuch galti hui hai\",\n    \"maine to app pe kal hi confirm kar diya tha\",\n    \"mujhe Suresh sir se baat karni hai\",\n    \"kaun bol raha hai? main Amit nahi hoon\"\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/scenarios/test-batch",
+              "host": ["{{base_url}}"],
+              "path": ["scenarios", "test-batch"]
+            },
+            "description": "Each utterance runs as its own fresh conversation, so one request exercises one branch per line.\n\nDeliberately uses paraphrases rather than the keyword lists — run this after editing any scenario JSON. Check the Postman **Console** for the branch-by-branch log."
+          }
+        },
+        {
+          "name": "Batch — 04 Overtime, all branches (Gujarati)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"scenario_id\": \"ot_request\",\n  \"language\": \"gu\",\n  \"facts\": {\n    \"employee_name\": \"Kiran\",\n    \"terminal\": \"{{terminal}}\",\n    \"shortfall_count\": \"3\",\n    \"duration\": \"8 કલાક\",\n    \"supervisor_name\": \"{{supervisor_name}}\"\n  },\n  \"utterances\": [\n    \"હા ભાઈ આવી જઈશ\",\n    \"ના યાર આજે નહીં આવી શકું\",\n    \"કેટલા પૈસા મળશે એ કહો પહેલા\",\n    \"કેટલા કલાક કામ કરવાનું છે?\",\n    \"મેં ગઈકાલે પણ ઓટી કરી હતી ભાઈ\",\n    \"મારે સુપરવાઇઝર સાથે વાત કરવી છે\"\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/scenarios/test-batch",
+              "host": ["{{base_url}}"],
+              "path": ["scenarios", "test-batch"]
+            },
+            "description": "Watch the guardrails hold: the pay question is deflected to HR/the app and the availability question is re-asked (`call_ended: false`) rather than the model inventing an OT rate."
+          }
+        },
+        {
+          "name": "Batch — 02 Punch-In, all branches (Hindi)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"scenario_id\": \"punch_in_remind\",\n  \"language\": \"hi\",\n  \"facts\": {\n    \"employee_name\": \"{{employee_name}}\",\n    \"time\": \"सुबह 8\",\n    \"terminal\": \"{{terminal}}\",\n    \"supervisor_name\": \"{{supervisor_name}}\"\n  },\n  \"utterances\": [\n    \"bhai main raste mein hoon, 10 minute mein pahunch jaunga\",\n    \"maine to punch kar diya tha subah\",\n    \"scanner kaam nahi kar raha hai yahan\",\n    \"mujhe supervisor se baat karni hai\",\n    \"galat number hai ye\"\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/scenarios/test-batch",
+              "host": ["{{base_url}}"],
+              "path": ["scenarios", "test-batch"]
+            }
+          }
+        },
+        {
+          "name": "Batch — 05 Punch-Out, all branches (English)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"scenario_id\": \"punch_out_remind\",\n  \"language\": \"en\",\n  \"facts\": {\n    \"employee_name\": \"{{employee_name}}\",\n    \"terminal\": \"{{terminal}}\",\n    \"supervisor_name\": \"{{supervisor_name}}\"\n  },\n  \"utterances\": [\n    \"I'm still on the crane, doing overtime right now\",\n    \"I punched out ten minutes ago already\",\n    \"the machine won't take my card\",\n    \"put me through to my supervisor please\",\n    \"you've got the wrong person\"\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/scenarios/test-batch",
+              "host": ["{{base_url}}"],
+              "path": ["scenarios", "test-batch"]
+            }
+          }
+        },
+        {
+          "name": "Batch — 03 Absence Priority (guardrail check)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"scenario_id\": \"absence_priority\",\n  \"language\": \"hi\",\n  \"facts\": {\n    \"employee_name\": \"{{employee_name}}\",\n    \"date\": \"5 अगस्त\",\n    \"time\": \"रात 8\",\n    \"terminal\": \"{{terminal}}\",\n    \"supervisor_name\": \"{{supervisor_name}}\"\n  },\n  \"utterances\": [\n    \"aap ne mujhe kyun call kiya? maine kuch nahi manga tha\",\n    \"pata nahi bhai, koshish karunga\",\n    \"maine chutti ki arzi de di hai\",\n    \"haan aa jaunga\"\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/scenarios/test-batch",
+              "host": ["{{base_url}}"],
+              "path": ["scenarios", "test-batch"]
+            },
+            "description": "The first utterance is the important one: asked *why were you calling me*, the reply must **not** reveal that a prediction model flagged this operator. The scripted answer is that it's a routine pre-shift check — which is true, since the system calls broadly.\n\nAlso note `tentative` is a distinct outcome from `yes`/`no`: a replacement is kept on standby."
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Place a real call",
+      "description": "Needs `ANTHROPIC_API_KEY`, `TWILIO_*` and a real public `NGROK_URL` in `.env`, with the server restarted after editing `.env`. Read §7 of POSTMAN_GUIDE.md first — the telephony leg is not yet verified on this account.",
+      "item": [
+        {
+          "name": "01 Call — Shift Confirm (Hindi)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json();",
+                  "if (b.call_sid) {",
+                  "  pm.collectionVariables.set('call_sid', b.call_sid);",
+                  "  console.log('saved call_sid =', b.call_sid);",
+                  "  console.log('operator will hear:', b.will_say);",
+                  "} else {",
+                  "  console.log('call not placed:', JSON.stringify(b));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"scenario_id\": \"shift_confirm\",\n  \"language\": \"hi\",\n  \"attempt\": 1,\n  \"to_phone_number\": \"{{to_phone_number}}\",\n  \"rgid\": \"RG12345\",\n  \"facts\": {\n    \"employee_name\": \"{{employee_name}}\",\n    \"date\": \"2 अगस्त\",\n    \"time\": \"सुबह 8\",\n    \"shift_name\": \"Day\",\n    \"terminal\": \"{{terminal}}\",\n    \"supervisor_name\": \"{{supervisor_name}}\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/scenarios/call",
+              "host": ["{{base_url}}"],
+              "path": ["scenarios", "call"]
+            },
+            "description": "Places the call and returns `call_sid` plus `will_say` — the exact opening line the operator will hear.\n\nThe test script saves `call_sid` into a collection variable, so **5. Outcomes → Get one scenario call** works immediately afterwards with no copy-paste.\n\n`to_phone_number` must be E.164 with country code (`+91…`)."
+          }
+        },
+        {
+          "name": "02 Call — Punch-In Reminder (Hindi)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json();",
+                  "if (b.call_sid) { pm.collectionVariables.set('call_sid', b.call_sid); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"scenario_id\": \"punch_in_remind\",\n  \"language\": \"hi\",\n  \"attempt\": 1,\n  \"to_phone_number\": \"{{to_phone_number}}\",\n  \"facts\": {\n    \"employee_name\": \"{{employee_name}}\",\n    \"time\": \"सुबह 8\",\n    \"terminal\": \"{{terminal}}\",\n    \"supervisor_name\": \"{{supervisor_name}}\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/scenarios/call",
+              "host": ["{{base_url}}"],
+              "path": ["scenarios", "call"]
+            }
+          }
+        },
+        {
+          "name": "03 Call — Absence Priority (Hindi)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json();",
+                  "if (b.call_sid) { pm.collectionVariables.set('call_sid', b.call_sid); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"scenario_id\": \"absence_priority\",\n  \"language\": \"hi\",\n  \"attempt\": 1,\n  \"to_phone_number\": \"{{to_phone_number}}\",\n  \"facts\": {\n    \"employee_name\": \"{{employee_name}}\",\n    \"date\": \"5 अगस्त\",\n    \"time\": \"रात 8\",\n    \"terminal\": \"{{terminal}}\",\n    \"supervisor_name\": \"{{supervisor_name}}\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/scenarios/call",
+              "host": ["{{base_url}}"],
+              "path": ["scenarios", "call"]
+            }
+          }
+        },
+        {
+          "name": "04 Call — Overtime Request (Gujarati)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json();",
+                  "if (b.call_sid) { pm.collectionVariables.set('call_sid', b.call_sid); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"scenario_id\": \"ot_request\",\n  \"language\": \"gu\",\n  \"attempt\": 1,\n  \"to_phone_number\": \"{{to_phone_number}}\",\n  \"facts\": {\n    \"employee_name\": \"Kiran\",\n    \"terminal\": \"{{terminal}}\",\n    \"shortfall_count\": \"3\",\n    \"duration\": \"8 કલાક\",\n    \"supervisor_name\": \"{{supervisor_name}}\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/scenarios/call",
+              "host": ["{{base_url}}"],
+              "path": ["scenarios", "call"]
+            }
+          }
+        },
+        {
+          "name": "05 Call — Punch-Out Reminder (English)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json();",
+                  "if (b.call_sid) { pm.collectionVariables.set('call_sid', b.call_sid); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"scenario_id\": \"punch_out_remind\",\n  \"language\": \"en\",\n  \"attempt\": 1,\n  \"to_phone_number\": \"{{to_phone_number}}\",\n  \"facts\": {\n    \"employee_name\": \"{{employee_name}}\",\n    \"terminal\": \"{{terminal}}\",\n    \"supervisor_name\": \"{{supervisor_name}}\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/scenarios/call",
+              "host": ["{{base_url}}"],
+              "path": ["scenarios", "call"]
+            }
+          }
+        },
+        {
+          "name": "Follow-up call (attempt 2 wording)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"scenario_id\": \"shift_confirm\",\n  \"language\": \"hi\",\n  \"attempt\": 2,\n  \"to_phone_number\": \"{{to_phone_number}}\",\n  \"facts\": {\n    \"employee_name\": \"{{employee_name}}\",\n    \"date\": \"2 अगस्त\",\n    \"time\": \"सुबह 8\",\n    \"shift_name\": \"Day\",\n    \"terminal\": \"{{terminal}}\",\n    \"supervisor_name\": \"{{supervisor_name}}\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/scenarios/call",
+              "host": ["{{base_url}}"],
+              "path": ["scenarios", "call"]
+            },
+            "description": "`attempt: 2` uses the second question from the question script (\"आपका कन्फर्मेशन अभी तक नहीं आया…\") instead of repeating the first one verbatim.\n\nPer the docs, two unanswered attempts is the escalation point for every scenario."
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Outcomes",
+      "item": [
+        {
+          "name": "List all scenario calls",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/scenario-calls",
+              "host": ["{{base_url}}"],
+              "path": ["scenario-calls"]
+            },
+            "description": "Newest first. Each row carries the scenario, language, facts dialled with, matched branch and outcome."
+          }
+        },
+        {
+          "name": "List calls filtered by scenario",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/scenario-calls?scenario_id=shift_confirm&limit=50",
+              "host": ["{{base_url}}"],
+              "path": ["scenario-calls"],
+              "query": [
+                { "key": "scenario_id", "value": "shift_confirm" },
+                { "key": "limit", "value": "50" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get one scenario call (uses saved call_sid)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/scenario-calls/{{call_sid}}",
+              "host": ["{{base_url}}"],
+              "path": ["scenario-calls", "{{call_sid}}"]
+            },
+            "description": "`{{call_sid}}` is filled automatically by any request in **4. Place a real call**.\n\nReturns the facts used, `matched_branch`, `outcome`, anything `collected` (e.g. the absence reason), the `detected_language` the operator actually spoke, plus the verbatim transcript with per-turn sentiment and an `escalation_recommended` flag."
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Generic agent (non-ShiftEaze)",
+      "description": "The free-form agent that predates the ShiftEaze scenarios — any prompt, any use case. Unrelated to the five scripted scenarios; included so the whole API is in one collection.",
+      "item": [
+        {
+          "name": "List agents",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/agents", "host": ["{{base_url}}"], "path": ["agents"] }
+          }
+        },
+        {
+          "name": "Create an agent",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"name\": \"Sales Bot\",\n  \"system_prompt\": \"You are a friendly sales rep for Acme Corp. Keep replies short and warm.\",\n  \"welcome_greeting\": \"Hi! Thanks for calling Acme, how can I help?\",\n  \"knowledge_base\": [\n    \"Acme ships in 3-5 business days\",\n    \"Returns are accepted within 30 days of purchase\"\n  ]\n}"
+            },
+            "url": { "raw": "{{base_url}}/agents", "host": ["{{base_url}}"], "path": ["agents"] },
+            "description": "Returns an auto-generated `id` (e.g. `sales-bot`) to use as `agent_id` elsewhere."
+          }
+        },
+        {
+          "name": "Update an agent's prompt (live)",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"system_prompt\": \"You are now also allowed to discuss bulk order discounts.\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/agents/sales-bot",
+              "host": ["{{base_url}}"],
+              "path": ["agents", "sales-bot"]
+            },
+            "description": "Takes effect on the very next call or message — no redeploy, no fine-tuning."
+          }
+        },
+        {
+          "name": "Chat with an agent (no phone)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"agent_id\": \"default\",\n  \"session_id\": \"chat-1\",\n  \"message\": \"Hi, I am really frustrated because my delivery is 3 days late!\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/chat/test",
+              "host": ["{{base_url}}"],
+              "path": ["chat", "test"]
+            },
+            "description": "Returns the reply plus a `sentiment` block (label, score, emotion, escalate flag). Try a frustrated message and watch the reply get more empathetic."
+          }
+        },
+        {
+          "name": "Delete an agent",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/agents/sales-bot",
+              "host": ["{{base_url}}"],
+              "path": ["agents", "sales-bot"]
+            },
+            "description": "The built-in `default` agent cannot be deleted."
+          }
+        }
+      ]
+    }
+  ]
+}

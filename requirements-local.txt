@@ -1,0 +1,19 @@
+# Dependencies for local_ai/ - the fully local, offline-capable STT+LLM+TTS
+# pipeline. Deliberately kept separate from requirements.txt so this optional
+# feature doesn't add weight to the main app's install.
+#
+# Install:   pip install -r requirements-local.txt
+# Also needs: Ollama installed separately (https://ollama.com - not a pip
+#             package) with a model pulled, e.g. `ollama pull phi4-mini`.
+#             See LOCAL_AI_README.md.
+
+# STT - CTranslate2 backend, MIT license. No PyTorch dependency (int8 CPU
+# inference), which is what keeps this lightweight on a CPU-only machine.
+faster-whisper==1.2.1
+
+# TTS - MIT license. Uses onnxruntime, also no PyTorch dependency.
+piper-tts==1.6.0
+
+# LLM client - already in the main requirements.txt (httpx), listed here too
+# so this file is a complete, standalone install list for local_ai/ alone.
+httpx

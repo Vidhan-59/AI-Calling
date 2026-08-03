@@ -1,0 +1,37 @@
+# --- Core web ---
+fastapi
+uvicorn[standard]
+pydantic>=2
+pydantic-settings
+python-dotenv
+python-multipart  # needed for request.form() in routers/calls.py's /recording-status webhook
+Jinja2
+
+# --- LLM ---
+anthropic
+
+# --- Persistence ---
+SQLAlchemy[asyncio]>=2.0
+alembic
+asyncpg          # Postgres driver (production)
+aiosqlite        # SQLite driver (zero-setup local dev, see config.py)
+
+# --- Session state / queues / rate limiting / kill-switch ---
+redis>=5.0
+
+# --- Telephony (existing) ---
+twilio
+plivo
+
+# --- Real-time media framework (Phase 2) ---
+pipecat-ai
+
+# --- HTTP clients for vendor APIs (Exotel/Plivo/Sarvam/ElevenLabs/Azure/Odoo) ---
+httpx
+
+# --- Config / flow graphs ---
+PyYAML
+
+# --- Observability ---
+opentelemetry-api
+opentelemetry-sdk

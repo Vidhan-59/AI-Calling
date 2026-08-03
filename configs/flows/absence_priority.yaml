@@ -1,0 +1,91 @@
+entry: greet
+nodes:
+  greet:
+    objective: >
+      Greet warmly, state you are ShiftEaze's automated assistant, disclose
+      the call is recorded, confirm you are speaking to the named operator.
+    collect: [identity_verified]
+    transitions:
+      - when: "identity_verified == true"
+        goto: check_in
+      - when: "identity_verified == false"
+        goto: wrong_person
+      - when: "reprompts >= 2"
+        goto: schedule_callback_node
+
+  check_in:
+    objective: >
+      Ask how they are doing, generally, before mentioning the shift at
+      all. Never reveal a prediction model flagged them - if asked why you
+      called, say you call everyone ahead of their shift to confirm.
+      Listen for any sign of real hardship (illness, family emergency,
+      injury) - that changes everything about the rest of this call.
+    collect: [wellbeing_flag]
+    transitions:
+      - when: "wellbeing_flag == \"distress\""
+        goto: handle_hardship
+      - when: "wellbeing_flag == \"ok\""
+        goto: ask_intent
+      - when: "reprompts >= 2"
+        goto: ask_intent
+
+  ask_intent:
+    objective: >
+      Now ask about the upcoming shift using the lookup_roster result, and
+      whether they'll be reporting.
+    tools: [lookup_roster]
+    collect: [attendance_intent]
+    transitions:
+      - when: "attendance_intent == \"confirm\""
+        goto: confirm_and_close
+      - when: "attendance_intent == \"decline\""
+        goto: capture_reason
+      - when: "attendance_intent == \"uncertain\""
+        goto: schedule_callback_node
+
+  handle_hardship:
+    objective: >
+      Acknowledge what they told you with genuine warmth. Do not push for
+      shift confirmation. Capture what they disclosed, tell them the Roster
+      Planner will handle cover, and let them go. Getting the slot filled
+      is not worth being cold to someone in a real crisis.
+    collect: [decline_reason]
+    tools: [mark_absence_intent]
+    transitions:
+      - when: always
+        goto: close_supportive
+
+  capture_reason:
+    objective: Capture the decline reason with empathy. No leave approval, no pay talk.
+    collect: [decline_reason]
+    tools: [mark_absence_intent]
+    transitions:
+      - when: always
+        goto: close_decline
+
+  wrong_person:
+    objective: Do not discuss anything about the named operator. Ask when they might be available, thank them, end the call.
+    transitions: []
+
+  schedule_callback_node:
+    objective: Offer a callback or SMS follow-up, close warmly.
+    tools: [schedule_callback, send_sms_fallback]
+    transitions: []
+
+  confirm_and_close:
+    objective: Thank them for confirming and close the call warmly.
+    tools: [end_call]
+    transitions: []
+
+  close_decline:
+    objective: Thank them for letting the Roster Planner know, close warmly.
+    tools: [end_call]
+    transitions: []
+
+  close_supportive:
+    objective: Close gently - this call was about a person, not a slot.
+    tools: [end_call]
+    transitions: []
+
+terminal_nodes:
+  [wrong_person, schedule_callback_node, confirm_and_close, close_decline, close_supportive]

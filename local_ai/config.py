@@ -1,0 +1,74 @@
+"""Config for the local pipeline - every model is swappable from here, or by
+setting the matching env var. Nothing in stt_engine.py / llm_engine.py /
+tts_engine.py / pipeline.py hardcodes a model name.
+
+Defaults are picked for this project's actual hardware (see LOCAL_AI_README.md
+for the measurement this was based on): 8-core/16-thread CPU, ~15GB RAM, no
+CUDA GPU. Every default favors speed on that hardware over maximum accuracy;
+bump WHISPER_MODEL_SIZE / OLLAMA_MODEL to a larger variant if you have more
+RAM or a GPU and want to trade latency for quality.
+"""
+
+import os
+
+from dotenv import load_dotenv
+
+# Nothing else in this codebase loads .env into the process environment -
+# config.py's pydantic Settings reads .env for its own model fields only, it
+# never touches os.environ. Every constant below is a plain os.getenv(), so
+# without this call .env edits to LOCAL_LLM_MODEL / SCENARIO_LLM_BACKEND /
+# etc. would silently do nothing. load_dotenv() never overrides a variable
+# that's already set in the real process environment.
+load_dotenv()
+
+# --- STT (faster-whisper) --------------------------------------------------
+# Model sizes, smallest to largest: tiny, base, small, medium, large-v3.
+# "small" is the speed/accuracy sweet spot on CPU for the code-mixed
+# Hindi/Gujarati/English speech this project deals with. Gujarati accuracy in
+# particular improves noticeably at "medium" - worth trying if small mislabels
+# too much, at roughly 2-3x the inference time.
+WHISPER_MODEL_SIZE = os.getenv("LOCAL_WHISPER_MODEL", "small")
+WHISPER_DEVICE = os.getenv("LOCAL_WHISPER_DEVICE", "cpu")
+WHISPER_COMPUTE_TYPE = os.getenv("LOCAL_WHISPER_COMPUTE_TYPE", "int8")
+
+# --- LLM (Ollama) ------------------------------------------------------------
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
+# Measured on this project's actual hardware (Ryzen 7 5800HS, 8c/16t, CPU-only,
+# no GPU) classifying the same 3 Hindi test utterances via scenario_engine:
+#   phi4-mini (MIT, 2.5GB):           23-33s/turn, 1/3 correct (missed the
+#     negation trap and the supervisor-escalation intent)
+#   qwen2.5:7b-instruct (Apache-2.0, 4.7GB): 33-60s/turn, 3/3 correct
+# Default is qwen2.5:7b-instruct: for the offline/dev/QA use this is actually
+# recommended for (see SCENARIO_LLM_BACKEND below), accuracy matters more than
+# the speed difference. Override with LOCAL_LLM_MODEL if you want phi4-mini's
+# speed for quick iteration instead, or a different model entirely - no code
+# change needed either way, just `ollama pull <model>` and set the env var.
+OLLAMA_MODEL = os.getenv("LOCAL_LLM_MODEL", "qwen2.5:7b-instruct")
+OLLAMA_TIMEOUT_SECONDS = float(os.getenv("LOCAL_LLM_TIMEOUT", "150"))
+# Ollama unloads a model from RAM after this much idle time, then pays a
+# one-time reload cost (~60-90s for a 4.7GB model on this hardware, on top of
+# the usual per-turn inference time) on the next request - this is exactly
+# what turned one call into an httpx.ReadTimeout past the 90s client timeout
+# above. "30m" keeps the model resident through a normal test/demo session
+# instead of unloading after Ollama's 5-minute default. Set to "-1" to never
+# unload for the length of a demo.
+OLLAMA_KEEP_ALIVE = os.getenv("LOCAL_LLM_KEEP_ALIVE", "30m")
+
+# --- TTS (Piper) --------------------------------------------------------------
+# See LOCAL_AI_README.md "Known limitation" section before relying on this for
+# Hindi, and do not rely on it at all for Gujarati - no usable open-source
+# Gujarati TTS voice exists at the time of writing.
+PIPER_VOICES_DIR = os.getenv(
+    "LOCAL_PIPER_VOICES_DIR",
+    os.path.join(os.path.dirname(os.path.realpath(__file__)), "voices"),
+)
+PIPER_VOICE_EN = os.getenv("LOCAL_PIPER_VOICE_EN", "en_US-lessac-medium")
+PIPER_VOICE_HI = os.getenv("LOCAL_PIPER_VOICE_HI", "hi_IN-pratham-medium")
+# No default Gujarati voice - intentional, see caveat above.
+PIPER_VOICE_GU = os.getenv("LOCAL_PIPER_VOICE_GU", "")
+
+# --- Wiring into services/scenario_engine.py ---------------------------------
+# "claude" (default, unchanged behavior) or "local" (routes classification
+# through llm_engine.py / Ollama instead of Claude). See scenario_engine.py's
+# classify_utterance() for the branch point.
+SCENARIO_LLM_BACKEND = os.getenv("SCENARIO_LLM_BACKEND", "claude")

@@ -1,0 +1,59 @@
+# Environment variables
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+
+# Virtual environment
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Type checking
+.mypy_cache/
+
+# Temporary files
+*.tmp
+*.temp
+
+# Local SQLite database (agents, calls, transcripts)
+data/
+*.db
+
+# Local run artifacts
+server.log
+*.tmp.txt
+tunnel.log
+server_err.log
+*.log.err
+run-all-output.log
+
+# Downloaded model assets (faster-whisper cache, Piper voice models) -
+# multi-hundred-MB binaries fetched on first run, not source code. See
+# LOCAL_AI_README.md "First-run downloads".
+local_ai/voices/
+*.onnx
+*.onnx.json

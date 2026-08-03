@@ -1,0 +1,85 @@
+entry: greet
+nodes:
+  greet:
+    objective: >
+      Greet briefly, state you are ShiftEaze's automated assistant, confirm
+      you are speaking to the named operator. Keep this shorter than a
+      shift-confirmation call - they may be mid-task.
+    collect: [identity_verified]
+    transitions:
+      - when: "identity_verified == true"
+        goto: check_status
+      - when: "identity_verified == false"
+        goto: wrong_person
+      - when: "reprompts >= 2"
+        goto: schedule_callback_node
+
+  check_status:
+    objective: >
+      Say their punch-in is not showing in the system and ask what's
+      happening, framed as a technical assumption, not an accusation: "sab
+      theek hai?" not "aap late hain". Use the lookup_roster result to
+      confirm they are indeed on shift right now before asking anything else.
+    tools: [lookup_roster]
+    collect: [attendance_status]
+    transitions:
+      - when: "attendance_status == \"on_site_forgot\""
+        goto: guide_punch
+      - when: "attendance_status == \"on_the_way\""
+        goto: capture_eta
+      - when: "attendance_status == \"not_coming\""
+        goto: capture_reason
+      - when: "attendance_status == \"technical_exception\""
+        goto: log_exception
+      - when: "reprompts >= 2"
+        goto: schedule_callback_node
+
+  guide_punch:
+    objective: >
+      Tell them to punch in now via the app, and that this will be logged
+      as an exception so it doesn't affect their record.
+    tools: [log_attendance_exception]
+    transitions:
+      - when: always
+        goto: close_ok
+
+  capture_eta:
+    objective: Capture their ETA, confirm it back once, close.
+    collect: [eta]
+    transitions:
+      - when: always
+        goto: close_ok
+
+  capture_reason:
+    objective: >
+      Capture why they are not coming, gently. No consequences language.
+    collect: [decline_reason]
+    tools: [mark_absence_intent]
+    transitions:
+      - when: always
+        goto: close_ok
+
+  log_exception:
+    objective: >
+      Log this as a technical/geofence exception. Tell them their supervisor
+      will be informed. Do not attempt to troubleshoot the app with them.
+    tools: [log_attendance_exception]
+    transitions:
+      - when: always
+        goto: close_ok
+
+  wrong_person:
+    objective: Apologise for the interruption, ask nothing further, end the call.
+    transitions: []
+
+  schedule_callback_node:
+    objective: Let them know their supervisor will be informed, end the call.
+    tools: [schedule_callback]
+    transitions: []
+
+  close_ok:
+    objective: Thank them briefly and close the call.
+    tools: [end_call]
+    transitions: []
+
+terminal_nodes: [wrong_person, schedule_callback_node, close_ok]

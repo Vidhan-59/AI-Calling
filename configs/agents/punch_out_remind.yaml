@@ -1,0 +1,42 @@
+id: punch_out_remind
+version: 1
+display_name: Punch-Out Reminder
+languages: [hi, gu, en]
+default_language: hi
+
+voice:
+  hi: { provider: sarvam, voice_id: meera, speed: 1.05 }
+  gu: { provider: azure, voice_id: gu-IN-DhwaniNeural, speed: 1.0 }
+  en: { provider: elevenlabs, voice_id: "21m00Tcm4TlvDq8ikWAM", speed: 1.05 }
+
+llm:
+  conversation: { model: claude-haiku-4-5, max_tokens: 100, temperature: 0.4 }
+  supervisor: { model: claude-sonnet-5, enabled: false }
+
+persona_file: prompts/agents/punch_out_remind/persona.j2
+flow: flows/punch_out_remind.yaml
+
+tools:
+  - log_attendance_exception
+  - transfer_to_human
+  - end_call
+
+guardrails:
+  - no_disciplinary_threat
+  - no_third_party_employee_data
+  - disclose_ai_and_recording
+  - hallucination_guard
+
+limits:
+  max_duration_sec: 45
+  max_turns: 8
+  max_reprompts_per_slot: 1
+
+retry:
+  attempts: 1
+  backoff: ["15m"]
+  on_no_answer: sms_fallback
+
+calling_window: { start: "00:00", end: "23:59", tz: "Asia/Kolkata" }
+
+success_slots: [identity_verified, punch_out_status]

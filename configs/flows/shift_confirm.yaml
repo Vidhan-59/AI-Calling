@@ -1,0 +1,89 @@
+entry: greet
+nodes:
+  greet:
+    objective: >
+      Greet warmly, state you are ShiftEaze's automated assistant,
+      disclose the call is recorded, confirm you are speaking to
+      the named operator.
+    collect: [identity_verified]
+    transitions:
+      - when: "identity_verified == true"
+        goto: state_shift
+      - when: "identity_verified == false"
+        goto: wrong_person
+      - when: "reprompts >= 2"
+        goto: schedule_callback_node
+
+  state_shift:
+    objective: >
+      State the rostered shift clearly - date, shift code, terminal,
+      reporting time - in the operator's language, using the lookup_roster
+      tool result. Then ask if they will be reporting.
+    tools: [lookup_roster]
+    collect: [shift_acknowledged]
+    transitions:
+      - when: always
+        goto: ask_intent
+
+  ask_intent:
+    objective: Determine whether the operator will attend the shift.
+    collect: [attendance_intent]
+    transitions:
+      - when: "attendance_intent == \"confirm\""
+        goto: confirm_and_close
+      - when: "attendance_intent == \"decline\""
+        goto: capture_reason
+      - when: "attendance_intent == \"uncertain\""
+        goto: probe_once
+      - when: "intent == \"wants_ot\""
+        goto: "HANDOFF:ot_request"
+
+  probe_once:
+    objective: >
+      They were unclear last time. Ask the same thing again, more simply,
+      once. If still unclear, stop asking and offer a callback.
+    collect: [attendance_intent]
+    transitions:
+      - when: "attendance_intent == \"confirm\""
+        goto: confirm_and_close
+      - when: "attendance_intent == \"decline\""
+        goto: capture_reason
+      - when: "reprompts >= 1"
+        goto: schedule_callback_node
+
+  capture_reason:
+    objective: >
+      Capture the reason with empathy. Do NOT approve or deny leave.
+      Do NOT promise anything about pay.
+    collect: [decline_reason, decline_category]
+    tools: [mark_absence_intent]
+    transitions:
+      - when: always
+        goto: close_decline
+
+  wrong_person:
+    objective: >
+      Do not discuss the shift, roster, or anything about the named
+      operator. Ask when they might be available, thank them, end the call.
+    transitions: []
+
+  schedule_callback_node:
+    objective: >
+      Apologise for the trouble, offer to try again shortly or send the
+      shift details by SMS instead.
+    tools: [schedule_callback, send_sms_fallback]
+    transitions: []
+
+  confirm_and_close:
+    objective: Thank them for confirming and close the call warmly.
+    tools: [confirm_shift, end_call]
+    transitions: []
+
+  close_decline:
+    objective: >
+      Thank them for letting the Roster Planner know in time and close
+      the call warmly - a clear decline now is a good outcome, not a failure.
+    tools: [end_call]
+    transitions: []
+
+terminal_nodes: [wrong_person, schedule_callback_node, confirm_and_close, close_decline]
