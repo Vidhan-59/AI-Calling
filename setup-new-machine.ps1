@@ -111,18 +111,41 @@ if (-not $SkipOllama) {
 if (-not $SkipOllama) {
     Section "3. Ollama + GPU"
 
-    $ollamaCmd = Get-Command ollama -ErrorAction SilentlyContinue
-    if (-not $ollamaCmd) {
+    function Sync-PathFromRegistry {
+        # A winget install updates PATH in the registry, but this already-running
+        # PowerShell process keeps its own copy in memory - Get-Command won't see
+        # a just-installed exe until $env:Path is refreshed from Machine+User.
+        $machine = [System.Environment]::GetEnvironmentVariable("Path", "Machine")
+        $user = [System.Environment]::GetEnvironmentVariable("Path", "User")
+        $env:Path = "$machine;$user"
+    }
+
+    function Find-OllamaExe {
+        $cmd = Get-Command ollama -ErrorAction SilentlyContinue
+        if ($cmd) { return $cmd.Source }
+        # winget's default install location if PATH still hasn't caught up.
+        $fallback = Join-Path $env:LOCALAPPDATA "Programs\Ollama\ollama.exe"
+        if (Test-Path $fallback) { return $fallback }
+        return $null
+    }
+
+    $ollamaExe = Find-OllamaExe
+    if (-not $ollamaExe) {
         Warn "Ollama not found - installing via winget..."
         winget install --id Ollama.Ollama --source winget --accept-package-agreements --accept-source-agreements
         Start-Sleep -Seconds 5
-        $ollamaCmd = Get-Command ollama -ErrorAction SilentlyContinue
-        if (-not $ollamaCmd) {
+        Sync-PathFromRegistry
+        $ollamaExe = Find-OllamaExe
+        if (-not $ollamaExe) {
             Fail "Ollama install didn't complete. Install manually from https://ollama.com, then re-run this script."
             exit 1
         }
     }
-    Ok "ollama found"
+    # Make sure the rest of this script (and this terminal session) can call
+    # the bare `ollama` command, not just the resolved path.
+    $ollamaDir = Split-Path $ollamaExe -Parent
+    if ($env:Path -notlike "*$ollamaDir*") { $env:Path = "$env:Path;$ollamaDir" }
+    Ok "ollama found ($ollamaExe)"
 
     # Ollama's Windows installer normally starts a background service on
     # 127.0.0.1:11434. If it's not up yet (e.g. just installed, tray app
