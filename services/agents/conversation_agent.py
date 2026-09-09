@@ -18,6 +18,7 @@ not something this loop should paper over.
 """
 
 import json
+import logging
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
 
@@ -26,9 +27,12 @@ from services.claude_client import ConversationTurnResult, generate_conversation
 from services.flow.graph import FlowGraph
 from services.flow.resolver import prompt_resolver
 from services.flow.slots import SlotState
+from services.guardrails.input import scan_input
 from services.guardrails.output import GuardrailViolation, enforce as enforce_guardrails
 import services.tools  # noqa: F401 - side effect: registers all @tool functions
 from services.tools.registry import ToolTimeoutError, get_tool, invoke_tool, to_claude_tool_schema
+
+logger = logging.getLogger("conversation_agent")
 
 RECORD_SLOT_TOOL = {
     "name": "record_slot",
@@ -79,6 +83,13 @@ class TurnOutcome:
     decision_detail: dict[str, Any] | None = None
     tokens_in: int = 0
     tokens_out: int = 0
+    input_injection_flagged: bool = False
+    """True if the caller's latest utterance matched a prompt-injection
+    pattern (services/guardrails/input.scan_input). Flagging only, never
+    blocking - the flow engine already structurally limits what a turn can do
+    (no tool exists that approves leave, transfers money, etc.), so the right
+    response to a flagged utterance is visibility for QA/logging, not
+    refusing to answer a caller who tripped a keyword heuristic."""
 
 
 def _coerce_slot_value(raw: str) -> Any:
@@ -105,6 +116,21 @@ async def run_turn(
     llm_call: LLMCall = generate_conversation_turn,
 ) -> TurnOutcome:
     config = agent_registry.get_agent_config(agent_id)
+
+    latest_user_text = next(
+        (m.get("content") for m in reversed(history) if m.get("role") == "user"),
+        None,
+    )
+    input_injection_flagged = bool(
+        isinstance(latest_user_text, str)
+        and latest_user_text
+        and scan_input(latest_user_text).prompt_injection_flagged
+    )
+    if input_injection_flagged:
+        logger.warning(
+            "[%s] caller utterance matched a prompt-injection pattern: %r",
+            call_id, latest_user_text,
+        )
 
     if not slot_state.current_node_id:
         slot_state.current_node_id = flow_graph.entry
@@ -214,6 +240,7 @@ async def run_turn(
             decision_detail=terminal_decision["input"],
             tokens_in=tokens_in,
             tokens_out=tokens_out,
+            input_injection_flagged=input_injection_flagged,
         )
 
     next_id = flow_graph.next_node_id(slot_state.current_node_id, slot_state.context())
@@ -238,4 +265,5 @@ async def run_turn(
         decision_detail=decision_detail,
         tokens_in=tokens_in,
         tokens_out=tokens_out,
+        input_injection_flagged=input_injection_flagged,
     )

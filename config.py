@@ -93,6 +93,14 @@ class Settings(BaseSettings):
     global_kill_switch_redis_key: str = "ai_calling:kill_switch"
     max_concurrent_calls: int = 50
 
+    # --- Dialer ---
+    # Off by default on purpose: starting a background dispatch loop that
+    # dials real numbers just because the server booted is exactly how a
+    # number gets blacklisted by an operator who never asked to be called.
+    # An operator has to opt in explicitly per environment.
+    dialer_enabled: bool = False
+    dialer_poll_interval_seconds: int = 15
+
 
 @lru_cache
 def get_settings() -> Settings:

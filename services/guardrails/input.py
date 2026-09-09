@@ -45,8 +45,17 @@ class InputScanResult:
     wrong_number_hint: bool
 
 
+def contains_prompt_injection(text: str) -> bool:
+    """The injection-pattern half of scan_input(), exposed standalone so any
+    caller that just needs a yes/no answer (API-boundary validators on
+    contact-derived data like scenario `facts` or an agent's `knowledge_base`)
+    doesn't have to go through the caller-utterance-shaped InputScanResult to
+    get it."""
+    return any(p.search(text) for p in _INJECTION_PATTERNS)
+
+
 def scan_input(text: str) -> InputScanResult:
-    injection = any(p.search(text) for p in _INJECTION_PATTERNS)
+    injection = contains_prompt_injection(text)
     wrong_number = any(p.search(text) for p in _WRONG_NUMBER_PATTERNS)
     return InputScanResult(text=text, prompt_injection_flagged=injection, wrong_number_hint=wrong_number)
 

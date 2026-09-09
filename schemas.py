@@ -9,9 +9,28 @@ dicts crossing module lines."
 from datetime import datetime
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from config import settings
+from services.guardrails.input import contains_prompt_injection
+
+
+def _check_knowledge_base_for_injection(items: Optional[list[str]]) -> Optional[list[str]]:
+    """knowledge_base entries are woven verbatim into this agent's system
+    prompt on every call (see services/agent_manager.build_system_prompt) -
+    exactly the "free-text CRM field becomes a prompt-injection vector" risk,
+    since these facts are the kind of thing that could originate from an
+    external system rather than be hand-typed by whoever configured the
+    agent. Reject at the API boundary rather than silently save it."""
+    for item in items or []:
+        if contains_prompt_injection(item):
+            raise ValueError(
+                f"knowledge_base entry {item!r} looks like a prompt-injection "
+                "attempt (matches a pattern like 'ignore previous instructions', "
+                "'you are now', 'system:', ...) and was refused. This field is "
+                "woven directly into the agent's system prompt on every call."
+            )
+    return items
 
 
 class AgentCreateRequest(BaseModel):
@@ -28,6 +47,8 @@ class AgentCreateRequest(BaseModel):
     effort: str = Field("medium", description="low | medium | high")
     knowledge_base: list[str] = Field(default_factory=list)
 
+    _check_knowledge_base = field_validator("knowledge_base")(_check_knowledge_base_for_injection)
+
 
 class AgentUpdateRequest(BaseModel):
     name: Optional[str] = None
@@ -37,6 +58,8 @@ class AgentUpdateRequest(BaseModel):
     model: Optional[str] = None
     effort: Optional[str] = None
     knowledge_base: Optional[list[str]] = None
+
+    _check_knowledge_base = field_validator("knowledge_base")(_check_knowledge_base_for_injection)
 
 
 class CallRequest(BaseModel):
