@@ -8,10 +8,12 @@ to goes through services/dispatch/admission.can_dial() inside
 services/dispatch/dialer.run_dispatch_cycle(); there is no path from here
 that calls a telephony provider directly.
 
-No authentication on any endpoint here. That's an explicit, flagged gap, not
-an oversight: /kill-switch and /dialer/run-once in particular must not be
-reachable by anyone outside your own network before a real deploy. See
-PHASE2_ARCHITECTURE_PROPOSAL.md, "known limitations".
+Every endpoint below except /dialer/call-status requires X-API-Key when
+ADMIN_API_KEY is configured (services/auth.py::require_admin_key) - see that
+module's docstring for why the Twilio webhook is the one exception. Running
+with ADMIN_API_KEY unset (the default) is still unauthenticated - see
+PHASE2_ARCHITECTURE_PROPOSAL.md, "known limitations", and set it before a
+real deploy.
 """
 
 import logging
@@ -26,11 +28,13 @@ from config import settings
 from db import get_redis, get_session, now as db_now
 from public_url import get_public_url
 from schemas import CampaignCreateRequest, ContactCreateRequest, KillSwitchRequest
+from services.auth import require_admin_key
 from services.dispatch.admission import is_kill_switch_engaged, record_opt_out
 from services.dispatch.dialer import handle_call_status_callback, run_dispatch_cycle
 
 logger = logging.getLogger("campaigns")
 router = APIRouter(tags=["dialer"])
+_admin = Depends(require_admin_key)
 
 
 # ---------------------------------------------------------------------------
@@ -54,7 +58,7 @@ def _contact_dict(c: "models.Contact") -> dict:
     }
 
 
-@router.post("/contacts")
+@router.post("/contacts", dependencies=[_admin])
 async def create_contact(payload: ContactCreateRequest, session: AsyncSession = Depends(get_session)):
     existing = await session.scalar(select(models.Contact).where(models.Contact.rgid == payload.rgid))
     if existing is not None:
@@ -77,7 +81,7 @@ async def create_contact(payload: ContactCreateRequest, session: AsyncSession = 
     return _contact_dict(contact)
 
 
-@router.get("/contacts")
+@router.get("/contacts", dependencies=[_admin])
 async def list_contacts(limit: int = 100, session: AsyncSession = Depends(get_session)):
     rows = (
         await session.scalars(
@@ -87,7 +91,7 @@ async def list_contacts(limit: int = 100, session: AsyncSession = Depends(get_se
     return [_contact_dict(c) for c in rows]
 
 
-@router.get("/contacts/{contact_id}")
+@router.get("/contacts/{contact_id}", dependencies=[_admin])
 async def get_contact(contact_id: str, session: AsyncSession = Depends(get_session)):
     contact = await session.get(models.Contact, contact_id)
     if contact is None:
@@ -95,7 +99,7 @@ async def get_contact(contact_id: str, session: AsyncSession = Depends(get_sessi
     return _contact_dict(contact)
 
 
-@router.post("/contacts/{contact_id}/opt-out")
+@router.post("/contacts/{contact_id}/opt-out", dependencies=[_admin])
 async def opt_out_contact(
     contact_id: str, source: str = "api", session: AsyncSession = Depends(get_session)
 ):
@@ -134,7 +138,7 @@ def _campaign_dict(c: "models.Campaign") -> dict:
     }
 
 
-@router.post("/campaigns")
+@router.post("/campaigns", dependencies=[_admin])
 async def create_campaign(payload: CampaignCreateRequest, session: AsyncSession = Depends(get_session)):
     from services import agent_registry
 
@@ -185,7 +189,7 @@ async def create_campaign(payload: CampaignCreateRequest, session: AsyncSession 
     }
 
 
-@router.get("/campaigns")
+@router.get("/campaigns", dependencies=[_admin])
 async def list_campaigns(limit: int = 100, session: AsyncSession = Depends(get_session)):
     rows = (
         await session.scalars(
@@ -195,7 +199,7 @@ async def list_campaigns(limit: int = 100, session: AsyncSession = Depends(get_s
     return [_campaign_dict(c) for c in rows]
 
 
-@router.get("/campaigns/{campaign_id}")
+@router.get("/campaigns/{campaign_id}", dependencies=[_admin])
 async def get_campaign(campaign_id: str, session: AsyncSession = Depends(get_session)):
     campaign = await session.get(models.Campaign, campaign_id)
     if campaign is None:
@@ -203,7 +207,7 @@ async def get_campaign(campaign_id: str, session: AsyncSession = Depends(get_ses
     return _campaign_dict(campaign)
 
 
-@router.get("/campaigns/{campaign_id}/tasks")
+@router.get("/campaigns/{campaign_id}/tasks", dependencies=[_admin])
 async def list_campaign_tasks(campaign_id: str, session: AsyncSession = Depends(get_session)):
     rows = (
         await session.scalars(
@@ -230,7 +234,7 @@ async def list_campaign_tasks(campaign_id: str, session: AsyncSession = Depends(
 # ---------------------------------------------------------------------------
 
 
-@router.post("/kill-switch")
+@router.post("/kill-switch", dependencies=[_admin])
 async def set_kill_switch(payload: KillSwitchRequest):
     """Flip the global stop-all-dialing switch. Read fresh from Redis by
     every admission check (services/dispatch/admission.is_kill_switch_engaged),
@@ -246,12 +250,12 @@ async def set_kill_switch(payload: KillSwitchRequest):
     return {"kill_switch_engaged": payload.enabled, "reason": payload.reason}
 
 
-@router.get("/kill-switch")
+@router.get("/kill-switch", dependencies=[_admin])
 async def get_kill_switch():
     return {"kill_switch_engaged": await is_kill_switch_engaged()}
 
 
-@router.post("/dialer/run-once")
+@router.post("/dialer/run-once", dependencies=[_admin])
 async def run_dialer_once(session: AsyncSession = Depends(get_session)):
     """Trigger exactly one dispatch cycle right now, without waiting for the
     background loop's poll interval. Useful for testing the pipeline end to

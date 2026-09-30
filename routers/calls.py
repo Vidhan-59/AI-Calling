@@ -8,7 +8,7 @@ from xml.sax.saxutils import quoteattr
 
 from config import NGROK_URL, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER
 from schemas import CallRequest, ChatTestRequest
-from services import agent_manager, claude_client, conversation_store
+from services import agent_manager, conversation_store, llm_router
 from services.call_logger import get_call_log, CALL_LOGS_DIR
 
 logger = logging.getLogger("calls")
@@ -148,8 +148,9 @@ async def chat_test(payload: ChatTestRequest):
     if not conversation_store.get_call(call_sid):
         conversation_store.create_call(call_sid, agent["id"], "test-user", agent["id"], "test")
 
+    llm = llm_router.engine()
     try:
-        sentiment = await claude_client.classify_sentiment(payload.message)
+        sentiment = await llm.classify_sentiment(payload.message)
         conversation_store.add_message(
             call_sid,
             "user",
@@ -171,8 +172,8 @@ async def chat_test(payload: ChatTestRequest):
             )
 
         system_prompt = agent_manager.build_system_prompt(agent)
-        reply = await claude_client.generate_reply(
-            system_prompt, history, agent["model"], agent["effort"]
+        reply = await llm.generate_reply(
+            system_prompt, history, model=llm_router.model_kwarg(agent["model"]), effort=agent["effort"]
         )
         conversation_store.add_message(call_sid, "assistant", reply)
     except RuntimeError as e:

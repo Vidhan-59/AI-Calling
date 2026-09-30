@@ -1,9 +1,20 @@
-"""Sarvam Bulbul TTS (Hindi). REST endpoint shape documented but not
-verified against a live key in this build - Bulbul's streaming websocket
-variant exists per Sarvam's docs but this implementation uses the simpler
-REST synth-then-chunk approach, which costs a little first-byte latency
-versus true streaming synthesis. Swap to the websocket variant once a key
-is available to verify the frame envelope, same caveat as services/stt/sarvam.py.
+"""Sarvam Bulbul TTS (Hindi/Gujarati/English). REST endpoint shape verified
+against a live key (2026-09-24): the request/response envelope here is
+correct (POST /text-to-speech, {"inputs":[...],"target_language_code":...,
+"speaker":...}, response {"audios": [base64 wav, ...]}), latency measured
+at ~1.5-2s per call for a one-sentence request. Bulbul's streaming
+websocket variant exists per Sarvam's docs but this implementation uses
+the simpler REST synth-then-chunk approach, which costs that first-byte
+latency versus true streaming synthesis - worth revisiting if TTS ever
+sits on this repo's live-call critical path (today it doesn't - see
+routers/analytics.py's sibling doc TECHNICAL_REFERENCE.md §5: every live
+call path uses Twilio ConversationRelay's own TTS, this provider is only
+reachable via services/tts/registry.py, which nothing currently calls).
+
+Speaker names are model-specific and do change across Bulbul versions -
+"meera" (previously used in configs/agents/*.yaml) is not a valid speaker
+on bulbul:v3 as of this verification; valid speakers were returned by the
+API's own 400-error message and configs were updated to "priya".
 """
 
 from typing import AsyncIterator

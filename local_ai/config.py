@@ -70,5 +70,18 @@ PIPER_VOICE_GU = os.getenv("LOCAL_PIPER_VOICE_GU", "")
 # --- Wiring into services/scenario_engine.py ---------------------------------
 # "claude" (default, unchanged behavior) or "local" (routes classification
 # through llm_engine.py / Ollama instead of Claude). See scenario_engine.py's
-# classify_utterance() for the branch point.
+# classify_utterance() for the branch point. Kept as its own name for
+# backward compat with existing docs/deployments that already set it - LLM_BACKEND
+# below is the newer, broader switch and falls back to this value.
 SCENARIO_LLM_BACKEND = os.getenv("SCENARIO_LLM_BACKEND", "claude")
+
+# --- Global LLM backend switch ------------------------------------------------
+# Unlike SCENARIO_LLM_BACKEND above (Track B's branch classifier only),
+# LLM_BACKEND governs every LLM call in the app: Track A's free-form replies
+# + sentiment (routers/voice.py, routers/calls.py's /chat/test), and the
+# rebuild's flow-graph conversation agent (services/agents/conversation_agent.py).
+# Falls back to SCENARIO_LLM_BACKEND so setting that one alone (as existing
+# docs describe) still flips everything, not just Track B - set LLM_BACKEND
+# explicitly only if you want the two to diverge (e.g. Track B on Claude,
+# everything else local).
+LLM_BACKEND = os.getenv("LLM_BACKEND", SCENARIO_LLM_BACKEND)

@@ -245,3 +245,29 @@ async def test_call_status_for_unknown_sid_is_a_safe_noop(session):
         session, provider_call_sid="CA-does-not-exist", provider_status="completed",
     )
     assert result is None
+
+
+async def test_reconcile_active_call_count_recomputes_from_in_call_tasks(session, _fake_redis):
+    campaign = await _make_campaign(session)
+    contact1 = await _make_contact(session)
+    contact2 = await _make_contact(session)
+    contact3 = await _make_contact(session)
+    await _make_task(session, campaign, contact1, state="in_call")
+    await _make_task(session, campaign, contact2, state="in_call")
+    await _make_task(session, campaign, contact3, state="pending")
+    await session.commit()
+
+    # Simulate a stale counter left over from an ungraceful shutdown - a
+    # fresh reconcile must overwrite it, not trust it.
+    await _fake_redis.set(dialer.ACTIVE_CALLS_REDIS_KEY, 99)
+
+    count = await dialer.reconcile_active_call_count(session)
+
+    assert count == 2
+    assert await dialer.active_call_count() == 2
+
+
+async def test_reconcile_active_call_count_is_zero_with_no_in_call_tasks(session, _fake_redis):
+    count = await dialer.reconcile_active_call_count(session)
+    assert count == 0
+    assert await dialer.active_call_count() == 0

@@ -100,8 +100,12 @@ def log_turn(
     end_call: bool = False,
     sentiment: Optional[dict] = None,
     classification: Optional[dict] = None,
-) -> None:
-    """Append one turn (user utterance or assistant reply) to the log."""
+) -> int:
+    """Append one turn (user utterance or assistant reply) to the log.
+    Returns the turn's seq number, so a caller that doesn't have the
+    sentiment yet (see set_turn_sentiment) can log the turn immediately and
+    backfill it once classification finishes, without disturbing transcript
+    order."""
     with _lock:
         data = _read_log(call_sid)
         if not data:
@@ -139,6 +143,27 @@ def log_turn(
                 "content": content,
             })
 
+        _write_log(call_sid, data)
+        return turn_entry["seq"]
+
+
+def set_turn_sentiment(call_sid: str, seq: int, sentiment: dict) -> None:
+    """Backfills sentiment onto a turn already written by log_turn - see
+    that function's docstring for why this exists."""
+    with _lock:
+        data = _read_log(call_sid)
+        if not data:
+            return
+        for turn_entry in data.get("turns", []):
+            if turn_entry.get("seq") == seq:
+                turn_entry["sentiment"] = sentiment
+                if sentiment.get("escalate"):
+                    data.setdefault("escalation_flags", []).append({
+                        "turn_seq": seq,
+                        "emotion": sentiment.get("emotion"),
+                        "content": turn_entry.get("content"),
+                    })
+                break
         _write_log(call_sid, data)
 
 

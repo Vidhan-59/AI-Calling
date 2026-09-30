@@ -47,6 +47,17 @@ def test_hallucination_guard_silent_when_roster_was_looked_up():
     assert not any(v.rule_id == "hallucination_guard" for v in violations)
 
 
+def test_enforce_deflects_hallucination_guard_without_crashing():
+    # Regression test: hallucination_guard is synthesized in check_output_text
+    # rather than defined in GUARDRAIL_CATALOG, so enforce()'s deflection
+    # lookup used to do a raw GUARDRAIL_CATALOG[rule_id] subscript and raise
+    # KeyError the first time this rule fired as the top BLOCK violation.
+    text = "Aapki shift kal subah 8 baje CT3 terminal par hai."
+    safe_text, violations = enforce(text, guardrail_ids=["hallucination_guard"], roster_available=False)
+    assert any(v.rule_id == "hallucination_guard" for v in violations)
+    assert safe_text != text
+
+
 def test_clean_text_produces_no_violations():
     text = "Namaste Amit bhai, kya aap kal ki shift ke liye aa rahe hain?"
     violations = check_output_text(text, guardrail_ids=["no_wage_discussion", "no_leave_approval"])

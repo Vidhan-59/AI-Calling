@@ -55,6 +55,24 @@ def add_message(
         return cur.lastrowid
 
 
+def set_message_sentiment(
+    message_id: int,
+    sentiment_label: str,
+    sentiment_score: float,
+    emotion: str,
+    escalate: bool,
+) -> None:
+    """Backfills sentiment onto a message row inserted before classification
+    finished - lets the caller insert the row immediately (so transcript
+    ordering is correct) while running classify_sentiment concurrently with
+    reply generation instead of blocking on it first."""
+    with get_cursor() as cur:
+        cur.execute(
+            "UPDATE messages SET sentiment_label = ?, sentiment_score = ?, emotion = ?, escalate = ? WHERE id = ?",
+            (sentiment_label, sentiment_score, emotion, int(escalate), message_id),
+        )
+
+
 def get_messages(call_sid: str) -> list[dict]:
     with get_cursor() as cur:
         cur.execute(

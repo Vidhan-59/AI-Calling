@@ -13,12 +13,24 @@ from dataclasses import dataclass
 from services.guardrails.rules import GuardrailRule, Severity, get_active_rules
 
 
+_HALLUCINATION_GUARD_DEFLECTION = (
+    "Main sirf roster mein jo dikh raha hai wahi bata sakta hoon, abhi confirm "
+    "karne ke liye ek second dijiye."
+)
+
+
 @dataclass
 class GuardrailViolation:
     rule_id: str
     severity: Severity
     matched_text: str
     description: str
+    deflection: str | None = None
+    """Set only for violations synthesized outside GUARDRAIL_CATALOG (e.g.
+    hallucination_guard below, which has no static rule text to check
+    against - it's a roster_available/keyword heuristic, not a regex). A
+    catalog-backed violation leaves this None and enforce() looks its
+    deflection up from GUARDRAIL_CATALOG instead, same as before."""
 
 
 def check_output_text(
@@ -53,6 +65,7 @@ def check_output_text(
                         "Mentions shift/date/time details with no lookup_roster "
                         "result available this call - can't have come from real data."
                     ),
+                    deflection=_HALLUCINATION_GUARD_DEFLECTION,
                 )
             )
     return violations
@@ -87,7 +100,19 @@ def enforce(
     if not blocking:
         return text, violations
 
+    top_violation = blocking[0]
+    if top_violation.deflection is not None:
+        return top_violation.deflection, violations
+
     from services.guardrails.rules import GUARDRAIL_CATALOG
 
-    top: GuardrailRule = GUARDRAIL_CATALOG[blocking[0].rule_id]
-    return top.deflection, violations
+    rule: GuardrailRule | None = GUARDRAIL_CATALOG.get(top_violation.rule_id)
+    if rule is None:
+        # Defensive fallback, not expected to be reachable today: every
+        # catalog-sourced violation's rule_id comes straight from
+        # get_active_rules(), which only ever returns catalog entries. Speak
+        # a generic deflection rather than crash the turn on an
+        # unrecognized rule_id (e.g. a future rule added to guardrails.j2's
+        # prompt text without a matching rules.py entry).
+        return "Main is baare mein abhi baat nahi kar sakta.", violations
+    return rule.deflection, violations

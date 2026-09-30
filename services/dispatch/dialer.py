@@ -56,6 +56,27 @@ async def active_call_count() -> int:
     return int(value) if value else 0
 
 
+async def reconcile_active_call_count(session) -> int:
+    """Recompute ACTIVE_CALLS_REDIS_KEY from the database instead of trusting
+    whatever Redis held across a restart. An ungraceful shutdown (crash,
+    kill -9, OOM) can skip mark_call_ended's decrement, leaking a slot
+    forever - see that function's docstring. Call once at startup, before
+    the dialer loop or any admission check runs, so a fresh boot always
+    starts from ground truth (count of CallTask rows still `in_call`) rather
+    than a stale counter. Returns the reconciled value."""
+    from sqlalchemy import func, select
+
+    import models
+
+    count = await session.scalar(
+        select(func.count(models.CallTask.id)).where(models.CallTask.state == "in_call")
+    )
+    count = count or 0
+    redis = get_redis()
+    await redis.set(ACTIVE_CALLS_REDIS_KEY, count)
+    return count
+
+
 async def _adjust_active_call_count(delta: int) -> None:
     redis = get_redis()
     new_value = await redis.incrby(ACTIVE_CALLS_REDIS_KEY, delta)

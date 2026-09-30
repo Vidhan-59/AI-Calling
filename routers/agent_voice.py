@@ -31,22 +31,25 @@ ended gracefully rather than silently mishandled. See "known limitations" in
 PHASE2_ARCHITECTURE_PROPOSAL.md.
 """
 
+import asyncio
 import json
 import logging
 import time
 from xml.sax.saxutils import quoteattr
 
-from fastapi import APIRouter, Request, WebSocket
+from fastapi import APIRouter, HTTPException, Request, WebSocket
 from fastapi.responses import HTMLResponse
 from fastapi.websockets import WebSocketDisconnect
+from pydantic import BaseModel
 from sqlalchemy import select
 
 import models
-from db import now as db_now, session_scope
-from services import agent_registry
+from db import get_session_factory, now as db_now, session_scope
+from services import agent_registry, llm_router
 from services.agents.conversation_agent import run_turn
 from services.dispatch.dialer import mark_call_ended
 from services.flow.slots import SlotState
+from services.pipeline.chunker import split_sentences
 
 logger = logging.getLogger("agent_voice")
 router = APIRouter(tags=["agent-voice"])
@@ -57,6 +60,13 @@ _ERROR_TWIML = (
     '<?xml version="1.0" encoding="UTF-8"?>'
     "<Response><Say>Configuration error. Goodbye.</Say><Hangup/></Response>"
 )
+
+
+class PreviewRequest(BaseModel):
+    agent_id: str
+    language: str = "hi"
+    contact: dict = {}
+    utterances: list[str] = []
 
 
 async def _load_call_context(task_id: str) -> dict | None:
@@ -136,6 +146,73 @@ async def agent_voice_twiml(request: Request):
     return HTMLResponse(content=twiml, media_type="application/xml")
 
 
+@router.post("/agent-voice/preview")
+async def agent_voice_preview(payload: PreviewRequest):
+    """Dry-run a config-driven agent (services/agents/conversation_agent.py)
+    through a scripted list of caller utterances - no Twilio, no CallTask,
+    no dialer. Lets someone authoring a new agent (per
+    services/agent_registry.py's "zero Python changes" promise) see what it
+    would actually say before ever dialing a real contact, mirroring Track
+    B's POST /scenarios/preview (routers/scenarios.py).
+
+    Runs real Claude calls through run_turn, against a database session
+    that is rolled back at the end instead of committed, so no Call/Turn/
+    CallOutcome rows are left behind. Caveat: if the scripted utterances
+    drive the flow into a tool with a real external side effect (e.g. the
+    Odoo webhook call in services/tools/hr_tools.py) while
+    ODOO_WEBHOOK_URL is configured, that HTTP call still happens for real -
+    rollback only undoes local database writes, not network requests
+    already sent. Don't preview flows that reach terminal HR tools against
+    a live Odoo webhook.
+    """
+    try:
+        flow_graph = agent_registry.get_flow_graph(payload.agent_id)
+    except Exception as e:  # noqa: BLE001 - bad/unknown agent_id is a client error, not a 500
+        raise HTTPException(status_code=404, detail=f"unknown or invalid agent_id: {e}")
+
+    slot_state = SlotState(current_node_id=flow_graph.entry)
+    call_id = f"preview:{payload.agent_id}"
+    history: list[dict] = [{"role": "user", "content": CALL_CONNECTED_SENTINEL}]
+    turns: list[dict] = []
+
+    def _record(utterance: str | None, outcome) -> None:
+        turns.append(
+            {
+                "utterance": utterance,
+                "text_to_speak": outcome.text_to_speak,
+                "decision": outcome.decision,
+                "guardrail_violations": [v.rule_id for v in outcome.guardrail_violations],
+            }
+        )
+
+    factory = get_session_factory()
+    async with factory() as session:
+        try:
+            outcome = await run_turn(
+                session=session, call_id=call_id, agent_id=payload.agent_id,
+                flow_graph=flow_graph, slot_state=slot_state,
+                contact=payload.contact, language=payload.language, history=history,
+            )
+            history.append({"role": "assistant", "content": outcome.text_to_speak})
+            _record(None, outcome)
+
+            for utterance in payload.utterances:
+                if outcome.decision in ("end_call", "transfer_to_human", "handoff"):
+                    break
+                history.append({"role": "user", "content": utterance})
+                outcome = await run_turn(
+                    session=session, call_id=call_id, agent_id=payload.agent_id,
+                    flow_graph=flow_graph, slot_state=slot_state,
+                    contact=payload.contact, language=payload.language, history=history,
+                )
+                history.append({"role": "assistant", "content": outcome.text_to_speak})
+                _record(utterance, outcome)
+        finally:
+            await session.rollback()
+
+    return {"agent_id": payload.agent_id, "slots_filled": slot_state.filled, "turns": turns}
+
+
 @router.websocket("/agent-voice/media-stream")
 async def agent_voice_media_stream(websocket: WebSocket):
     await websocket.accept()
@@ -150,7 +227,9 @@ async def agent_voice_media_stream(websocket: WebSocket):
     turn_seq = 0
     ended = False
 
-    async def _persist_turn(role: str, text: str, latency_ms: int | None = None) -> None:
+    async def _persist_turn(
+        role: str, text: str, latency_ms: int | None = None, sentiment: dict | None = None
+    ) -> None:
         nonlocal turn_seq
         turn_seq += 1
         async with session_scope() as session:
@@ -162,6 +241,10 @@ async def agent_voice_media_stream(websocket: WebSocket):
                     role=role,
                     text=text,
                     latency_total_ms=latency_ms,
+                    sentiment_label=(sentiment or {}).get("sentiment"),
+                    sentiment_score=(sentiment or {}).get("score"),
+                    emotion=(sentiment or {}).get("emotion"),
+                    escalate=(sentiment or {}).get("escalate", False),
                 )
             )
 
@@ -260,6 +343,12 @@ async def agent_voice_media_stream(websocket: WebSocket):
 
                 history.append({"role": "user", "content": utterance})
 
+                # Sentiment classification runs concurrently with run_turn -
+                # same reasoning as routers/voice.py: it must never add
+                # latency to the caller-perceived turn, it only enriches the
+                # Turn row once both finish.
+                sentiment_task = asyncio.create_task(llm_router.engine().classify_sentiment(utterance))
+
                 t0 = time.monotonic()
                 async with session_scope() as session:
                     outcome = await run_turn(
@@ -270,10 +359,21 @@ async def agent_voice_media_stream(websocket: WebSocket):
                 latency_ms = int((time.monotonic() - t0) * 1000)
 
                 history.append({"role": "assistant", "content": outcome.text_to_speak})
-                await _persist_turn("user", utterance)
+                sentiment = await sentiment_task
+                if sentiment.get("escalate"):
+                    logger.warning("[%s] ESCALATION FLAG: caller sounds %s", call_id, sentiment.get("emotion"))
+                await _persist_turn("user", utterance, sentiment=sentiment)
                 await _persist_turn("assistant", outcome.text_to_speak, latency_ms)
 
-                await websocket.send_json({"type": "text", "token": outcome.text_to_speak, "last": True})
+                # Sentence-chunked send so ConversationRelay's TTS can start
+                # speaking the first sentence instead of waiting for the
+                # whole (already-fully-generated) reply to be transmitted -
+                # see services/pipeline/chunker.py.
+                chunks = split_sentences(outcome.text_to_speak) or [outcome.text_to_speak]
+                for i, chunk in enumerate(chunks):
+                    await websocket.send_json(
+                        {"type": "text", "token": chunk, "last": i == len(chunks) - 1}
+                    )
 
                 for v in outcome.guardrail_violations:
                     logger.warning("[%s] guardrail violation: %s (severity=%s)", call_id, v.rule_id, v.severity)

@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from config import settings
 from simple_db import init_db as init_legacy_db
 from db import init_db as init_rebuild_db
-from routers import agent_voice, agents, calls, campaigns, scenarios, voice, voice_scenario
+from routers import agent_voice, agents, analytics, calls, campaigns, scenarios, voice, voice_scenario
 
 # ---------------------------------------------------------------------------
 # Logging - structured, consistent across all modules
@@ -43,6 +43,7 @@ app.include_router(voice_scenario.router)
 # live call entrypoint that drives services/agents/conversation_agent.py)
 app.include_router(campaigns.router)
 app.include_router(agent_voice.router)
+app.include_router(analytics.router)
 
 logger.info("All routers registered")
 
@@ -79,21 +80,17 @@ async def _dialer_loop() -> None:
         await asyncio.sleep(settings.dialer_poll_interval_seconds)
 
 
-@app.on_event("startup")
-async def _start_dialer_loop() -> None:
-    global _dialer_task
-    if settings.dialer_enabled:
-        _dialer_task = asyncio.create_task(_dialer_loop())
-    else:
-        logger.info("Dialer loop not started (dialer_enabled=False) - use POST /dialer/run-once to test manually.")
-
-
 @app.on_event("shutdown")
 async def _stop_dialer_loop() -> None:
     if _dialer_task is not None:
         _dialer_task.cancel()
 
 
+# Registration order matters: FastAPI runs "startup" handlers in the order
+# they're registered, and both handlers below must finish before the dialer
+# loop's first cycle can run correctly - _init_rebuild_db creates the tables
+# reconcile_active_call_count reads, and the reconciled counter must be in
+# place before run_dispatch_cycle makes its first admission decision.
 @app.on_event("startup")
 async def _init_rebuild_db() -> None:
     """Creates models.py's SQLAlchemy tables (Agent/AgentVersion/Prompt/
@@ -107,9 +104,55 @@ async def _init_rebuild_db() -> None:
     conversation_agent/flow-graph path reachable from a live call - it only
     means the tables it needs actually exist and stay in sync with the YAML
     configs, which the dispatcher/router work in a later phase will need.
+
+    sync_configs_to_db() (inside init_rebuild_db) already calls
+    agent_registry.get_agent_config()/get_flow_graph() for every
+    configs/agents/*.yaml, which raise ValueError on a bad config - so a
+    broken agent config fails the server at boot with a clear traceback
+    instead of surfacing on the first live call to it. Not caught here on
+    purpose: a broken agent config should stop the server from starting,
+    the same way a broken migration would.
     """
     await init_rebuild_db()
     logger.info("Rebuild DB initialized (models.py tables + agent config sync)")
+
+
+@app.on_event("startup")
+async def _reconcile_dialer_state() -> None:
+    """Recomputes the active-call concurrency counter from the database
+    instead of trusting whatever Redis held across a restart - closes the
+    counter leak documented in PHASE2_ARCHITECTURE_PROPOSAL.md's "known
+    limitations" (an ungraceful shutdown skips the decrement in
+    mark_call_ended, permanently occupying a concurrency slot until this
+    runs). Must run before the dialer loop starts, since it reads the
+    counter to decide how many calls it may originate this cycle.
+
+    Redis is optional for local dev (Track A/B calling and most of the API
+    don't touch it at all) - a missing/unreachable Redis must not prevent
+    the whole server from booting just to serve those. Reconciliation is
+    only meaningful once Redis and the dialer are actually in play, so a
+    connection failure here is logged and skipped, not fatal."""
+    from db import session_scope
+    from services.dispatch.dialer import reconcile_active_call_count
+
+    try:
+        async with session_scope() as session:
+            count = await reconcile_active_call_count(session)
+        logger.info("Reconciled active_call_count from DB: %d in_call task(s)", count)
+    except Exception as e:  # noqa: BLE001 - Redis being down must not block server startup
+        logger.warning(
+            "Could not reconcile active_call_count (Redis unreachable?) - skipping. "
+            "This only matters if the dialer is in use. Error: %s", e,
+        )
+
+
+@app.on_event("startup")
+async def _start_dialer_loop() -> None:
+    global _dialer_task
+    if settings.dialer_enabled:
+        _dialer_task = asyncio.create_task(_dialer_loop())
+    else:
+        logger.info("Dialer loop not started (dialer_enabled=False) - use POST /dialer/run-once to test manually.")
 
 
 @app.get("/")

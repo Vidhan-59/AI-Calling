@@ -97,6 +97,44 @@ def _placeholder(value: str) -> bool:
     )
 
 
+def _llm_backend(env: dict[str, str]) -> str:
+    # Mirrors local_ai/config.py's LLM_BACKEND resolution (LLM_BACKEND,
+    # falling back to SCENARIO_LLM_BACKEND, default "claude") without
+    # importing that module - preflight must stay stdlib-only. Kept in sync
+    # by hand; if you change the fallback chain there, change it here too.
+    return env.get("LLM_BACKEND") or env.get("SCENARIO_LLM_BACKEND") or "claude"
+
+
+def check_ollama(env: dict[str, str]) -> None:
+    """Only called when LLM_BACKEND=local - checks Ollama is reachable and
+    the configured model is pulled, using stdlib urllib (no httpx
+    dependency needed just for this check, same reasoning as check_env's
+    ANTHROPIC_API_KEY check running before dependencies are confirmed
+    installed)."""
+    import urllib.error
+    import urllib.request
+
+    base_url = (env.get("OLLAMA_BASE_URL") or "http://127.0.0.1:11434").rstrip("/")
+    model = env.get("LOCAL_LLM_MODEL") or "qwen2.5:7b-instruct"
+
+    try:
+        with urllib.request.urlopen(f"{base_url}/api/tags", timeout=3) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except (urllib.error.URLError, TimeoutError, OSError) as e:
+        warn(f"LLM_BACKEND=local but Ollama is unreachable at {base_url} ({e}) - run `ollama serve`")
+        return
+    except Exception as e:  # noqa: BLE001 - a malformed response must not crash preflight
+        warn(f"LLM_BACKEND=local but Ollama's response at {base_url} could not be parsed: {e}")
+        return
+
+    names = [m.get("name", "") for m in data.get("models", [])]
+    pulled = any(n == model or n.startswith(model + ":") for n in names)
+    if pulled:
+        ok(f"Ollama reachable at {base_url}, model '{model}' pulled")
+    else:
+        warn(f"Ollama reachable at {base_url}, but '{model}' is not pulled - run: ollama pull {model}")
+
+
 def check_env() -> None:
     if not os.path.isfile(os.path.join(BASE_DIR, ".env")):
         if os.path.isfile(os.path.join(BASE_DIR, ".env.example")):
@@ -106,13 +144,19 @@ def check_env() -> None:
         return
 
     env = _read_env()
+    backend = _llm_backend(env)
 
-    key = env.get("ANTHROPIC_API_KEY", "")
-    if _placeholder(key):
-        fail("ANTHROPIC_API_KEY is not set in .env "
-             "(get one at https://console.anthropic.com/settings/keys)")
+    if backend == "local":
+        note("LLM_BACKEND=local - Claude/ANTHROPIC_API_KEY is not required")
+        check_ollama(env)
     else:
-        ok(f"ANTHROPIC_API_KEY set (...{key[-6:]})")
+        key = env.get("ANTHROPIC_API_KEY", "")
+        if _placeholder(key):
+            fail("ANTHROPIC_API_KEY is not set in .env "
+                 "(get one at https://console.anthropic.com/settings/keys, "
+                 "or set LLM_BACKEND=local to use Ollama instead)")
+        else:
+            ok(f"ANTHROPIC_API_KEY set (...{key[-6:]})")
 
     twilio_ready = all(
         not _placeholder(env.get(k, ""))

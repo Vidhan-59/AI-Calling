@@ -5,7 +5,7 @@ languages: [hi, gu, en]
 default_language: hi
 
 voice:
-  hi: { provider: sarvam, voice_id: meera, speed: 0.95 }
+  hi: { provider: sarvam, voice_id: priya, speed: 0.95 }
   gu: { provider: azure, voice_id: gu-IN-DhwaniNeural, speed: 0.9 }
   en: { provider: elevenlabs, voice_id: "21m00Tcm4TlvDq8ikWAM", speed: 0.95 }
 

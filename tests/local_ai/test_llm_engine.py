@@ -95,3 +95,115 @@ async def test_health_check_reports_down_when_unreachable(monkeypatch):
     health = await llm_engine.health_check()
 
     assert health == {"ollama_running": False, "model_pulled": False}
+
+
+# --- generate_conversation_turn (Ollama tool-calling) -----------------------
+# Request/response shapes here match a live probe against a real
+# qwen2.5:7b-instruct model via `ollama serve` (2026-09-24): tool_calls
+# come back as [{"function": {"name", "arguments"}}] with no "id" field,
+# and a turn that calls a tool returns empty `content` - the actual spoken
+# reply only shows up once the tool result is fed back as a follow-up call.
+
+_RECORD_SLOT_TOOL = {
+    "name": "record_slot",
+    "description": "Record a confirmed slot value.",
+    "input_schema": {
+        "type": "object",
+        "properties": {"slot": {"type": "string"}, "value": {"type": "string"}},
+        "required": ["slot", "value"],
+    },
+}
+
+
+def test_claude_tools_to_ollama_translates_input_schema_to_parameters():
+    ollama_tools = llm_engine._claude_tools_to_ollama([_RECORD_SLOT_TOOL])
+
+    assert ollama_tools == [
+        {
+            "type": "function",
+            "function": {
+                "name": "record_slot",
+                "description": "Record a confirmed slot value.",
+                "parameters": _RECORD_SLOT_TOOL["input_schema"],
+            },
+        }
+    ]
+
+
+def test_claude_history_to_ollama_passes_plain_turns_through():
+    history = [{"role": "user", "content": "Haan main aa jaunga."}]
+    assert llm_engine._claude_history_to_ollama(history) == history
+
+
+def test_claude_history_to_ollama_translates_tool_use_and_tool_result_blocks():
+    # The exact shape services/agents/conversation_agent.py's follow-up
+    # round builds after a real tool call.
+    history = [
+        {"role": "user", "content": "Haan main aa jaunga."},
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "tool_use", "id": "call_0", "name": "record_slot", "input": {"slot": "x", "value": "y"}}
+            ],
+        },
+        {
+            "role": "user",
+            "content": [{"type": "tool_result", "tool_use_id": "call_0", "content": '{"status": "recorded"}'}],
+        },
+    ]
+
+    translated = llm_engine._claude_history_to_ollama(history)
+
+    assert translated[0] == {"role": "user", "content": "Haan main aa jaunga."}
+    assert translated[1] == {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [{"function": {"name": "record_slot", "arguments": {"slot": "x", "value": "y"}}}],
+    }
+    assert translated[2] == {"role": "tool", "content": '{"status": "recorded"}'}
+
+
+@pytest.mark.asyncio
+async def test_generate_conversation_turn_parses_a_tool_call_response(monkeypatch):
+    fake_resp = _FakeResponse(
+        {
+            "message": {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{"function": {"name": "record_slot", "arguments": {"slot": "x", "value": "y"}}}],
+            },
+            "done_reason": "stop",
+            "prompt_eval_count": 186,
+            "eval_count": 27,
+        }
+    )
+    monkeypatch.setattr(llm_engine, "_client", lambda: _FakeAsyncClient(fake_resp))
+
+    result = await llm_engine.generate_conversation_turn(
+        "system prompt", [{"role": "user", "content": "haan"}], tools=[_RECORD_SLOT_TOOL],
+    )
+
+    assert result.text == ""
+    assert len(result.tool_calls) == 1
+    assert result.tool_calls[0].name == "record_slot"
+    assert result.tool_calls[0].input == {"slot": "x", "value": "y"}
+    assert result.tokens_in == 186
+    assert result.tokens_out == 27
+    # raw_content must be readable by this module's own translator on the
+    # follow-up round - see test above for the shape it expects.
+    assert result.raw_content == [
+        {"type": "tool_use", "id": "local_call_0", "name": "record_slot", "input": {"slot": "x", "value": "y"}}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_generate_conversation_turn_parses_a_plain_text_response(monkeypatch):
+    fake_resp = _FakeResponse({"message": {"role": "assistant", "content": "Dhanyavaad!"}, "done_reason": "stop"})
+    monkeypatch.setattr(llm_engine, "_client", lambda: _FakeAsyncClient(fake_resp))
+
+    result = await llm_engine.generate_conversation_turn(
+        "system prompt", [{"role": "user", "content": "haan"}], tools=[],
+    )
+
+    assert result.text == "Dhanyavaad!"
+    assert result.tool_calls == []

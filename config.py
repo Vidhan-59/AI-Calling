@@ -101,6 +101,14 @@ class Settings(BaseSettings):
     dialer_enabled: bool = False
     dialer_poll_interval_seconds: int = 15
 
+    # --- Admin auth ---
+    # Guards routers/campaigns.py (contacts/campaigns/kill-switch/dialer
+    # admin) and routers/analytics.py (call transcripts/outcomes) - see
+    # services/auth.py. None by default so local dev/tests aren't blocked;
+    # unset means those endpoints run with NO authentication, which
+    # services/auth.py logs loudly on first use.
+    admin_api_key: str | None = None
+
 
 @lru_cache
 def get_settings() -> Settings:

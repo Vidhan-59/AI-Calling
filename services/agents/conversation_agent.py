@@ -101,6 +101,22 @@ def _coerce_slot_value(raw: str) -> Any:
     return raw
 
 
+def _default_llm_call() -> LLMCall:
+    """Resolves which engine backs every conversation-agent turn, read fresh
+    per call (not cached at import/def time) so flipping LLM_BACKEND in .env
+    takes effect on the next call, no restart - same reasoning as
+    services/scenario_engine.py's own backend switch. Only consulted when
+    run_turn's caller doesn't pass an explicit llm_call (e.g. a test's
+    FakeLLM), so nothing here affects existing test coverage."""
+    from local_ai import config as local_ai_config
+
+    if local_ai_config.LLM_BACKEND == "local":
+        from local_ai.llm_engine import generate_conversation_turn as local_generate_conversation_turn
+
+        return local_generate_conversation_turn
+    return generate_conversation_turn
+
+
 async def run_turn(
     *,
     session,
@@ -113,8 +129,9 @@ async def run_turn(
     history: list[dict[str, Any]],
     extra_vars: dict[str, Any] | None = None,
     supervisor_guidance: str | None = None,
-    llm_call: LLMCall = generate_conversation_turn,
+    llm_call: LLMCall | None = None,
 ) -> TurnOutcome:
+    llm_call = llm_call or _default_llm_call()
     config = agent_registry.get_agent_config(agent_id)
 
     latest_user_text = next(
@@ -147,11 +164,18 @@ async def run_turn(
         supervisor_guidance=supervisor_guidance,
     )
     tool_schemas = [RECORD_SLOT_TOOL] + [to_claude_tool_schema(t) for t in node.tools]
+    # configs/agents/*.yaml's llm.conversation.model names a Claude model
+    # (e.g. "claude-haiku-4-5") - meaningless to local_ai's Ollama engine,
+    # which serves exactly one model (local_ai.config.OLLAMA_MODEL). Pass
+    # the configured name through only when actually talking to Claude;
+    # None lets a non-Claude llm_call (the local engine, or a test's
+    # FakeLLM, which ignores it) fall back to its own default.
+    model_name = config.llm.conversation.model if llm_call is generate_conversation_turn else None
 
     result = await llm_call(
         system_prompt,
         history,
-        model=config.llm.conversation.model,
+        model=model_name,
         tools=tool_schemas,
         max_tokens=config.llm.conversation.max_tokens,
         temperature=config.llm.conversation.temperature,
@@ -209,7 +233,7 @@ async def run_turn(
         follow_up = await llm_call(
             system_prompt,
             follow_up_messages,
-            model=config.llm.conversation.model,
+            model=model_name,
             tools=tool_schemas,
             max_tokens=config.llm.conversation.max_tokens,
             temperature=config.llm.conversation.temperature,

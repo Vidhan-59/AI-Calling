@@ -1,11 +1,12 @@
+import asyncio
 import json
 import logging
 
 from fastapi import APIRouter, WebSocket
 from fastapi.websockets import WebSocketDisconnect
 
-from services import agent_manager, claude_client, conversation_store
-from services.call_logger import init_call_log, log_turn, finalize_call_log
+from services import agent_manager, conversation_store, llm_router
+from services.call_logger import init_call_log, log_turn, set_turn_sentiment, finalize_call_log
 
 logger = logging.getLogger("voice")
 router = APIRouter()
@@ -20,12 +21,15 @@ async def handle_media_stream(websocket: WebSocket):
                    {"type": "interrupt", ...}
     us -> Twilio:  {"type": "text", "token": "<partial or full reply>", "last": bool}
 
-    This is the two-way loop: every caller utterance is transcribed by Twilio,
-    handed to us as text, run through sentiment analysis + Claude with the
-    full conversation history, and the reply is streamed back token-by-token
-    for Twilio to speak. Note: ConversationRelay is a Twilio public-beta
-    product - double check exact message field names against Twilio's current
-    docs if this stops working after a Twilio-side update.
+    This is the two-way loop: every caller utterance is transcribed by
+    Twilio, handed to us as text, and run through sentiment classification
+    and Claude reply generation *concurrently* (two independent Claude
+    calls - see the "prompt" handler below) rather than sentiment-then-reply,
+    so classification latency is never added to what the caller hears. The
+    reply is streamed back token-by-token for Twilio to speak. Note:
+    ConversationRelay is a Twilio public-beta product - double check exact
+    message field names against Twilio's current docs if this stops working
+    after a Twilio-side update.
     """
     await websocket.accept()
 
@@ -77,37 +81,23 @@ async def handle_media_stream(websocket: WebSocket):
                 if not user_text:
                     continue
 
-                sentiment = await claude_client.classify_sentiment(user_text)
-                conversation_store.add_message(
-                    call_sid,
-                    "user",
-                    user_text,
-                    sentiment_label=sentiment["sentiment"],
-                    sentiment_score=sentiment["score"],
-                    emotion=sentiment["emotion"],
-                    escalate=sentiment["escalate"],
-                )
-                log_turn(
-                    call_sid,
-                    role="user",
-                    content=user_text,
-                    sentiment=sentiment,
-                )
-                if sentiment["escalate"]:
-                    logger.warning("[%s] ESCALATION FLAG: caller sounds %s", call_sid, sentiment['emotion'])
-
-                claude_facing_text = user_text
-                if sentiment["sentiment"] == "negative" or sentiment["escalate"]:
-                    claude_facing_text = (
-                        f"[Caller tone: {sentiment['emotion']}, sentiment={sentiment['sentiment']}] "
-                        f"{user_text}"
-                    )
-                history.append({"role": "user", "content": claude_facing_text})
+                # Sentiment classification and reply generation are
+                # independent LLM calls - running them concurrently instead
+                # of sentiment-then-reply removes one full round-trip from
+                # the caller-perceived latency on every turn. The message
+                # row is inserted now (plain text, no sentiment yet) so
+                # transcript ordering stays correct, and backfilled once
+                # classify_sentiment resolves.
+                llm = llm_router.engine()
+                sentiment_task = asyncio.create_task(llm.classify_sentiment(user_text))
+                user_message_id = conversation_store.add_message(call_sid, "user", user_text)
+                user_turn_seq = log_turn(call_sid, role="user", content=user_text)
+                history.append({"role": "user", "content": user_text})
 
                 system_prompt = agent_manager.build_system_prompt(agent)
                 full_reply = ""
-                async for chunk in claude_client.generate_reply_stream(
-                    system_prompt, history, agent["model"], agent["effort"]
+                async for chunk in llm.generate_reply_stream(
+                    system_prompt, history, model=llm_router.model_kwarg(agent["model"]), effort=agent["effort"]
                 ):
                     full_reply += chunk
                     await websocket.send_json({"type": "text", "token": chunk, "last": False})
@@ -117,6 +107,18 @@ async def handle_media_stream(websocket: WebSocket):
                 history.append({"role": "assistant", "content": full_reply})
                 conversation_store.add_message(call_sid, "assistant", full_reply)
                 log_turn(call_sid, role="assistant", content=full_reply)
+
+                sentiment = await sentiment_task
+                conversation_store.set_message_sentiment(
+                    user_message_id,
+                    sentiment["sentiment"],
+                    sentiment["score"],
+                    sentiment["emotion"],
+                    sentiment["escalate"],
+                )
+                set_turn_sentiment(call_sid, user_turn_seq, sentiment)
+                if sentiment["escalate"]:
+                    logger.warning("[%s] ESCALATION FLAG: caller sounds %s", call_sid, sentiment['emotion'])
 
             elif msg_type == "interrupt":
                 logger.info("[%s] caller interrupted: %s", call_sid, data.get('utteranceUntilInterrupt', ''))

@@ -12,11 +12,12 @@ the model already pulled: `ollama pull phi4-mini`.
 """
 
 import json
-from typing import AsyncIterator
+from typing import Any, AsyncIterator
 
 import httpx
 
 from local_ai import config
+from services.claude_client import ConversationTurnResult, ToolCallRequest
 
 
 class OllamaUnavailableError(RuntimeError):
@@ -143,6 +144,136 @@ async def generate_reply_stream(
         raise OllamaUnavailableError(
             f"Cannot reach Ollama at {config.OLLAMA_BASE_URL}. Is `ollama serve` running?"
         ) from e
+
+
+def _claude_tools_to_ollama(tools: list[dict]) -> list[dict]:
+    """services/agents/conversation_agent.py builds `tools` as Claude-shaped
+    dicts ({"name","description","input_schema"} - see RECORD_SLOT_TOOL and
+    services/tools/registry.py::to_claude_tool_schema). Ollama's /api/chat
+    wants OpenAI-style {"type":"function","function":{"name","description",
+    "parameters"}} - verified against a live qwen2.5:7b-instruct response
+    (2026-09-24), see local_ai's own probe notes in git history for the
+    request/response shapes this was built against."""
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": t["name"],
+                "description": t.get("description", t["name"]),
+                "parameters": t.get("input_schema", {"type": "object", "properties": {}}),
+            },
+        }
+        for t in tools
+    ]
+
+
+def _claude_history_to_ollama(messages: list[dict]) -> list[dict]:
+    """Translates conversation_agent.py's message history into Ollama's
+    shape. Most turns are plain {"role","content": str} and pass through
+    unchanged. The one exception is the tool-resume round
+    conversation_agent.run_turn builds after a real tool call:
+
+        {"role": "assistant", "content": result.raw_content}   # Claude content blocks
+        {"role": "user", "content": tool_result_blocks}        # Claude tool_result blocks
+
+    `result.raw_content` here is whatever THIS module's own
+    generate_conversation_turn returned last round (see its own raw_content
+    construction below, deliberately built in the same Claude block shape
+    so this translator can read its own prior output back) - text blocks
+    become the assistant message's `content` string, tool_use blocks become
+    its `tool_calls` list; tool_result blocks each become their own
+    {"role":"tool","content":...} message, matching what the live probe
+    against qwen2.5:7b-instruct confirmed Ollama expects for the follow-up
+    round to produce a real spoken reply instead of calling the tool again.
+    """
+    out: list[dict] = []
+    for m in messages:
+        role, content = m.get("role"), m.get("content")
+        if isinstance(content, str):
+            out.append({"role": role, "content": content})
+            continue
+        if not isinstance(content, list):
+            out.append({"role": role, "content": str(content)})
+            continue
+
+        if role == "assistant":
+            text_parts = [b.get("text", "") for b in content if b.get("type") == "text"]
+            tool_calls = [
+                {"function": {"name": b.get("name"), "arguments": b.get("input", {})}}
+                for b in content
+                if b.get("type") == "tool_use"
+            ]
+            entry: dict[str, Any] = {"role": "assistant", "content": "".join(text_parts)}
+            if tool_calls:
+                entry["tool_calls"] = tool_calls
+            out.append(entry)
+        else:
+            for b in content:
+                if b.get("type") == "tool_result":
+                    out.append({"role": "tool", "content": str(b.get("content", ""))})
+                else:
+                    out.append({"role": role, "content": str(b.get("content", b))})
+    return out
+
+
+async def generate_conversation_turn(
+    system_prompt: str,
+    messages: list[dict],
+    *,
+    model: str | None = None,
+    tools: list[dict],
+    max_tokens: int = 150,
+    temperature: float = 0.4,
+) -> ConversationTurnResult:
+    """Local (Ollama) equivalent of services.claude_client.generate_conversation_turn
+    - same signature and same ConversationTurnResult/ToolCallRequest return
+    types, so services/agents/conversation_agent.py's run_turn works
+    unchanged regardless of which one it's given as `llm_call`. See
+    _claude_history_to_ollama for the message-shape translation this relies
+    on, and _claude_tools_to_ollama for the tool-schema translation.
+    """
+    payload = {
+        "model": model or config.OLLAMA_MODEL,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            *_claude_history_to_ollama(messages),
+        ],
+        "tools": _claude_tools_to_ollama(tools) if tools else [],
+        "stream": False,
+        "options": {"num_predict": max_tokens, "temperature": temperature},
+        "keep_alive": config.OLLAMA_KEEP_ALIVE,
+    }
+    try:
+        async with _client() as client:
+            resp = await client.post("/api/chat", json=payload)
+            resp.raise_for_status()
+    except httpx.ConnectError as e:
+        raise OllamaUnavailableError(
+            f"Cannot reach Ollama at {config.OLLAMA_BASE_URL}. Is `ollama serve` running?"
+        ) from e
+
+    data = resp.json()
+    message = data.get("message", {})
+    text = (message.get("content") or "").strip()
+
+    tool_calls: list[ToolCallRequest] = []
+    raw_content: list[dict] = []
+    if text:
+        raw_content.append({"type": "text", "text": text})
+    for i, tc in enumerate(message.get("tool_calls") or []):
+        fn = tc.get("function", {})
+        call_id = f"local_call_{i}"
+        tool_calls.append(ToolCallRequest(id=call_id, name=fn.get("name", ""), input=fn.get("arguments", {}) or {}))
+        raw_content.append({"type": "tool_use", "id": call_id, "name": fn.get("name", ""), "input": fn.get("arguments", {}) or {}})
+
+    return ConversationTurnResult(
+        text=text,
+        tool_calls=tool_calls,
+        stop_reason=data.get("done_reason"),
+        raw_content=raw_content,
+        tokens_in=data.get("prompt_eval_count", 0) or 0,
+        tokens_out=data.get("eval_count", 0) or 0,
+    )
 
 
 _SENTIMENT_SCHEMA = {
