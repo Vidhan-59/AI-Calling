@@ -13,17 +13,19 @@ Endpoints, in the order you'd normally use them:
   GET  /scenario-calls/{call_sid}     - one call: outcome + transcript + sentiment
 """
 
+import csv
+import io
 import logging
 import urllib.error
 import urllib.request
 import uuid
 from xml.sax.saxutils import quoteattr
 
-from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
+from fastapi.responses import HTMLResponse, Response
 from twilio.rest import Client
 
-from config import TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER
+from config import TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER, settings
 from public_url import get_public_url
 from scenario_schemas import (
     ScenarioCallRequest,
@@ -31,8 +33,9 @@ from scenario_schemas import (
     ScenarioTestBatchRequest,
     ScenarioTestTurnRequest,
 )
-from services import conversation_store, scenario_engine, scenario_store
+from services import call_analysis, conversation_store, scenario_engine, scenario_store
 from services.call_logger import get_call_log
+from services.voice_pipeline.scenario_pipeline import build_stream_twiml, prefetch_call_lines
 
 logger = logging.getLogger("scenarios")
 router = APIRouter(tags=["shifteaze-scenarios"])
@@ -98,6 +101,15 @@ _test_sessions: dict[str, scenario_engine.ScenarioSession] = {}
 # ---------------------------------------------------------------------------
 
 
+def _voice_label(scenario_id: str, language: str, lang_cfg: dict) -> str:
+    """Which voice will speak this call, for the API response."""
+    if settings.scenario_voice_transport != "media":
+        return f"google {lang_cfg['voice']}"
+    from services.tts import voice_registry
+
+    return f"omnivoice {voice_registry.assigned_voice_id(scenario_id, language) or '(service default)'}"
+
+
 @router.get("/scenarios")
 def list_scenarios():
     """All five ShiftEaze calling scenarios, their languages and branch keys."""
@@ -159,7 +171,7 @@ def preview(payload: ScenarioPreviewRequest):
         "scenario_id": payload.scenario_id,
         "language": payload.language,
         "attempt": payload.attempt,
-        "voice": lang_cfg["voice"],
+        "voice": _voice_label(payload.scenario_id, payload.language, lang_cfg),
         "tts_language": lang_cfg["tts_language"],
         "transcription_language": lang_cfg["transcription_language"],
         "missing_facts": missing,
@@ -292,11 +304,14 @@ async def test_batch(payload: ScenarioTestBatchRequest):
 
 
 @router.post("/scenarios/call")
-def place_scenario_call(payload: ScenarioCallRequest):
+def place_scenario_call(payload: ScenarioCallRequest, background_tasks: BackgroundTasks):
     """Place a real outbound ShiftEaze scenario call.
 
     Rejects the request up front if a required fact is missing, rather than
     letting an operator hear an unfilled placeholder mid-sentence.
+
+    With the media transport, every line this call can speak is synthesized
+    in the background while the phone rings, so no turn waits on TTS.
     """
     lang_cfg = scenario_engine.get_language_config(payload.scenario_id, payload.language)
     if not lang_cfg:
@@ -368,7 +383,17 @@ def place_scenario_call(payload: ScenarioCallRequest):
             from_=TWILIO_PHONE_NUMBER,
         )
     except Exception as e:
+        scenario_store.delete(f"pending:{ref}")  # nothing was dialled
         return {"status": "failed", "error": str(e)}
+    # If the phone never connects, this row is the only record of the attempt
+    # (scenario_store.sweep_stale marks it not_connected) - keep Twilio's SID
+    # on it so it can be matched to Twilio's call log.
+    scenario_store.set_placed_call_sid(f"pending:{ref}", call.sid)
+
+    if settings.scenario_voice_transport == "media":
+        background_tasks.add_task(
+            prefetch_call_lines, payload.scenario_id, payload.language, facts, payload.attempt
+        )
 
     return {
         "status": "success",
@@ -377,7 +402,7 @@ def place_scenario_call(payload: ScenarioCallRequest):
         "scenario_id": payload.scenario_id,
         "language": payload.language,
         "attempt": payload.attempt,
-        "voice": lang_cfg["voice"],
+        "voice": _voice_label(payload.scenario_id, payload.language, lang_cfg),
         "will_say": scenario_engine.render(
             lang_cfg.get("attempt_2_opening" if payload.attempt > 1 else "opening")
             or lang_cfg["opening"],
@@ -413,6 +438,13 @@ async def scenario_twiml(request: Request):
             "<Response><Say>Configuration error. Goodbye.</Say><Hangup/></Response>"
         )
         return HTMLResponse(content=response, media_type="application/xml")
+
+    if settings.scenario_voice_transport == "media":
+        twiml = build_stream_twiml(
+            f"wss://{request.url.hostname}/scenarios/media",
+            {"ref": ref, "scenarioId": scenario_id, "language": language, "attempt": str(attempt)},
+        )
+        return HTMLResponse(content=twiml, media_type="application/xml")
 
     record = scenario_store.get(f"pending:{ref}") if ref else None
     facts = (record or {}).get("facts", {})
@@ -461,6 +493,40 @@ async def scenario_twiml(request: Request):
 def list_scenario_calls(scenario_id: str | None = None, limit: int = 100):
     """Outcomes of placed scenario calls, newest first."""
     return scenario_store.list_calls(scenario_id=scenario_id, limit=limit)
+
+
+_EXPORT_COLUMNS = [
+    "call_sid", "started_at", "ended_at", "scenario_id", "language", "employee_name", "to_number", "rgid",
+    "attempt", "status", "outcome", "matched_branch", "absence_reason", "reason_category", "reason_english",
+    "sentiment", "sentiment_score", "emotion", "summary", "follow_up_required", "follow_up_note",
+    "duration_secs", "turn_count", "avg_turn_latency_ms", "analysis_status", "transcript_text",
+]
+
+
+@router.get("/scenario-calls/export.csv")
+def export_scenario_calls(scenario_id: str | None = None, limit: int = 1000):
+    """Every call with outcome, reason, sentiment and summary - opens in Excel.
+    UTF-8 with BOM so Excel shows Hindi/Gujarati correctly."""
+    buf = io.StringIO()
+    buf.write("﻿")
+    writer = csv.DictWriter(buf, fieldnames=_EXPORT_COLUMNS, extrasaction="ignore")
+    writer.writeheader()
+    for row in scenario_store.list_calls(scenario_id=scenario_id, limit=limit):
+        writer.writerow(row)
+    return Response(
+        content=buf.getvalue(), media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="scenario_calls.csv"'},
+    )
+
+
+@router.post("/scenario-calls/{call_sid}/analyze")
+async def analyze_scenario_call(call_sid: str):
+    """(Re-)run the post-call analysis - e.g. after Ollama was down at hang-up."""
+    if not scenario_store.get(call_sid):
+        raise HTTPException(status_code=404, detail="Scenario call not found")
+    call_analysis.store_details(call_sid)
+    await call_analysis.analyze_call(call_sid)
+    return scenario_store.get(call_sid)
 
 
 @router.get("/scenario-calls/{call_sid}")

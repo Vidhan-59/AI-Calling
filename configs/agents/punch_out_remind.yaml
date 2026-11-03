@@ -5,9 +5,9 @@ languages: [hi, gu, en]
 default_language: hi
 
 voice:
-  hi: { provider: sarvam, voice_id: priya, speed: 1.05 }
-  gu: { provider: azure, voice_id: gu-IN-DhwaniNeural, speed: 1.0 }
-  en: { provider: elevenlabs, voice_id: "21m00Tcm4TlvDq8ikWAM", speed: 1.05 }
+  hi: { provider: omnivoice, voice_id: default, speed: 1.05 }
+  gu: { provider: omnivoice, voice_id: default, speed: 1.0 }
+  en: { provider: omnivoice, voice_id: default, speed: 1.05 }
 
 llm:
   conversation: { model: claude-haiku-4-5, max_tokens: 100, temperature: 0.4 }

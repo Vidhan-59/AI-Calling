@@ -72,6 +72,33 @@ class TwilioProvider(TelephonyProvider):
         )
         return twiml, "application/xml"
 
+    def build_stream_connect_response(
+        self,
+        *,
+        media_ws_url: str,
+        custom_params: dict[str, str],
+    ) -> tuple[str, str]:
+        """Raw Twilio Media Streams TwiML (<Connect><Stream>), for the
+        self-hosted Pipecat pipeline (services/voice_pipeline/) - the
+        counterpart to build_connect_response's <ConversationRelay> above.
+        No greeting/voice_id/ttsProvider attributes here: unlike
+        ConversationRelay, this contract does no TTS/STT of its own - the
+        pipeline generates and speaks its own opening line once the media
+        stream connects (see ConversationAgentProcessor._bootstrap_greeting).
+        Matches services/telephony/plivo.py's existing <Stream> pattern."""
+        params_xml = "".join(
+            f'<Parameter name={quoteattr(k)} value={quoteattr(v)}/>' for k, v in custom_params.items()
+        )
+        twiml = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            "<Response><Connect>"
+            f'<Stream url={quoteattr(media_ws_url)}>'
+            f"{params_xml}"
+            "</Stream>"
+            "</Connect></Response>"
+        )
+        return twiml, "application/xml"
+
     async def terminate_call(self, provider_call_sid: str) -> None:
         self._client.calls(provider_call_sid).update(status="completed")
 

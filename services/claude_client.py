@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, Awaitable, Callable
 
 import anthropic
 
@@ -122,6 +122,52 @@ async def generate_conversation_turn(
         tools=tools or [],
         messages=messages,
     )
+    text_parts: list[str] = []
+    tool_calls: list[ToolCallRequest] = []
+    for block in response.content:
+        if block.type == "text":
+            text_parts.append(block.text)
+        elif block.type == "tool_use":
+            tool_calls.append(ToolCallRequest(id=block.id, name=block.name, input=block.input))
+
+    usage = getattr(response, "usage", None)
+    return ConversationTurnResult(
+        text="".join(text_parts).strip(),
+        tool_calls=tool_calls,
+        stop_reason=response.stop_reason,
+        raw_content=[b.model_dump() for b in response.content],
+        tokens_in=getattr(usage, "input_tokens", 0) or 0,
+        tokens_out=getattr(usage, "output_tokens", 0) or 0,
+    )
+
+
+async def generate_conversation_turn_stream(
+    system_prompt: str,
+    messages: list[dict],
+    *,
+    model: str,
+    tools: list[dict],
+    max_tokens: int = 150,
+    temperature: float = 0.4,
+    on_text: Callable[[str], Awaitable[None]],
+) -> ConversationTurnResult:
+    """Streaming generate_conversation_turn: text deltas go to `on_text` as
+    they arrive (live calls start speaking on the first few words), and the
+    full result - tool_use blocks included - is returned at the end, so
+    run_turn's tool-resume logic is unchanged."""
+    async with _get_client().messages.stream(
+        model=model,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        system=system_prompt + NO_TAG_LEAK_INSTRUCTION,
+        tools=tools or [],
+        messages=messages,
+    ) as stream:
+        async for text in stream.text_stream:
+            if text:
+                await on_text(text)
+        response = await stream.get_final_message()
+
     text_parts: list[str] = []
     tool_calls: list[ToolCallRequest] = []
     for block in response.content:

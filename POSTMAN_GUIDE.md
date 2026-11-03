@@ -185,7 +185,7 @@ Each utterance runs as its own fresh conversation, so one request exercises one 
   "scenario_id": "shift_confirm",
   "language": "hi",
   "attempt": 1,
-  "to_phone_number": "+919426005911",
+  "to_phone_number": "+91XXXXXXXXXX",
   "rgid": "RG12345",
   "facts": {
     "employee_name": "Amit",
@@ -256,7 +256,7 @@ After editing a JSON:
 
 ## 7. Verification status — ✅ working end-to-end on a real phone call
 
-**Confirmed on a live Hindi call** to `+919426005911` (call SID `CA1b3840…`, 32s, 5 turns):
+**Confirmed on a live Hindi call** to `+91XXXXXXXXXX` (call SID `CA1b3840…`, 32s, 5 turns):
 
 ```
 setup: shift_confirm/hi attempt=1

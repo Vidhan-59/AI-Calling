@@ -7,7 +7,12 @@
   "max_attempts": 2,
   "no_answer_outcome": "no_response_treated_as_decline",
   "no_answer_action": "Treated as a decline - next OT-eligible operator is called.",
-  "required_facts": ["employee_name", "terminal", "shortfall_count", "duration"],
+  "required_facts": [
+    "employee_name",
+    "terminal",
+    "shortfall_count",
+    "duration"
+  ],
   "knowledge_base": [
     "You are ASKING, not assigning. A 'no' is a completely acceptable answer - accept it on the first refusal and close warmly.",
     "Never persuade after a refusal. Never mention that other operators have already declined.",
@@ -23,180 +28,258 @@
       "tts_language": "en-IN",
       "transcription_language": "en-IN",
       "voice": "en-IN-Neural2-B",
-      "opening": "Hello {employee_name}, sorry to disturb you. There is a shortage of {shortfall_count} people today at {terminal} on overtime. Can you come? Please answer yes or no.",
-      "attempt_2_opening": "Hello {employee_name}, we really need you for this shift. Should I put your name down? Please answer yes or no.",
-      "silence_reply": "It seems you're unable to respond right now. We'll treat this as a decline and contact the next eligible operator. Thank you!",
+      "opening": "Hi {employee_name}, this is ShiftEaze calling. Sorry to bother you. We need {shortfall_count} people for overtime at {terminal} today. Would you be able to come in?",
+      "attempt_2_opening": "Hi {employee_name}, ShiftEaze again. We still need people for overtime at {terminal} today. Would you be able to come in?",
+      "silence_reply": "Looks like we can't connect right now. I'll try you again a bit later. Thank you!",
       "branches": {
         "yes": {
           "description": "Operator accepts the overtime shift.",
-          "keywords": ["yes", "I can come", "sure", "I'll be there"],
-          "reply": "Thank you, I'm putting your name down for this shift.",
+          "keywords": [
+            "yes",
+            "I can come",
+            "sure",
+            "I'll be there"
+          ],
+          "reply": "Thank you so much! I'm putting your name down for this shift.",
           "outcome": "ot_accepted",
           "end_call": true
         },
         "no": {
           "description": "Operator declines the overtime shift.",
-          "keywords": ["no", "can't come", "not available"],
-          "reply": "Understood, thank you for letting us know.",
+          "keywords": [
+            "no",
+            "can't come",
+            "not available"
+          ],
+          "reply": "No problem at all. Thanks for letting me know!",
           "outcome": "ot_declined",
           "end_call": true
         },
         "asks_pay": {
           "description": "Operator asks about pay, OT rate or money.",
-          "keywords": ["how much will I get paid", "what's the pay", "OT rate"],
-          "reply": "I'm not able to share pay details on this call - please check the app or your supervisor for that. Can you come? Please answer yes or no.",
+          "keywords": [
+            "how much will I get paid",
+            "what's the pay",
+            "OT rate"
+          ],
+          "reply": "I can't share pay details on this call, you can check that in the app or with your supervisor. So, would you be able to come in?",
           "outcome": "awaiting_response",
           "end_call": false
         },
         "asks_hours": {
           "description": "Operator asks how many hours or how long the shift is.",
-          "keywords": ["how many hours", "how long is the shift"],
-          "reply": "This shift is for {duration}. Can you come? Please answer yes or no.",
+          "keywords": [
+            "how many hours",
+            "how long is the shift"
+          ],
+          "reply": "This shift is {duration} long. Would you be able to come in?",
           "outcome": "awaiting_response",
           "end_call": false
         },
         "recent_ot": {
           "description": "Operator mentions recent OT or hours already worked.",
-          "keywords": ["I did OT yesterday too", "I've already done a lot of OT"],
-          "reply": "Thank you for letting us know, I'm noting that down. Can you still come today? Please answer yes or no.",
+          "keywords": [
+            "I did OT yesterday too",
+            "I've already done a lot of OT"
+          ],
+          "reply": "Okay, thanks for telling me, I've noted that. Even so, would you be able to come in today?",
           "outcome": "awaiting_response_flag_ot_hours_check",
           "end_call": false
         },
         "supervisor": {
           "description": "Operator wants to speak to a supervisor or a human.",
-          "keywords": ["talk to my supervisor", "connect me to a person"],
-          "reply": "I'll pass this on to your supervisor, {supervisor_name}. Thank you!",
+          "keywords": [
+            "talk to my supervisor",
+            "connect me to a person"
+          ],
+          "reply": "Sure, I'll let your supervisor know, and they'll get in touch with you. Thank you!",
           "outcome": "escalated_supervisor_notified",
           "end_call": true
         },
         "wrong_number": {
           "description": "Wrong number or the person is not the named operator.",
-          "keywords": ["wrong number", "this isn't {employee_name}", "who is this"],
-          "reply": "I'm sorry for the inconvenience. I'll correct this on our end. Thank you!",
+          "keywords": [
+            "wrong number",
+            "this isn't {employee_name}",
+            "who is this"
+          ],
+          "reply": "Oh, I'm sorry, I must have the wrong number. Apologies for the trouble. Thank you!",
           "outcome": "data_mismatch_flagged",
           "end_call": true
         }
-      }
+      },
+      "unclear_reprompt": "Sorry, I didn't quite catch that. Would you be able to come in for overtime today?",
+      "silence_checkin": "Hello? Can you hear me?"
     },
     "hi": {
       "language_name": "Hindi",
       "tts_language": "hi-IN",
       "transcription_language": "hi-IN",
       "voice": "hi-IN-Neural2-B",
-      "opening": "नमस्ते {employee_name}, परेशान करने के लिए क्षमा करें। आज {terminal} में ओटी पर {shortfall_count} लोगों की कमी है। क्या आप आ सकते हैं? कृपया 'हाँ' या 'नहीं' में उत्तर दें।",
-      "attempt_2_opening": "हेलो {employee_name} भाई, आपकी बहुत ज़रूरत है इस शिफ्ट के लिए। मैं आपका नाम डाल दूं? कृपया 'हाँ' या 'नहीं' में उत्तर दें।",
-      "silence_reply": "ऐसा लगता है कि आप अभी उत्तर नहीं दे पा रहे हैं। हम इसे इनकार मानकर अगले योग्य ऑपरेटर से संपर्क करेंगे। आपका धन्यवाद!",
+      "opening": "नमस्ते {employee_name} जी, मैं शिफ्टईज़ से बोल रही हूँ। थोड़ा परेशान करने के लिए माफ़ी। आज {terminal} में ओवरटाइम के लिए {shortfall_count} लोगों की ज़रूरत है। क्या आप आ पाएंगे?",
+      "attempt_2_opening": "नमस्ते {employee_name} जी, शिफ्टईज़ से दोबारा बोल रही हूँ। आज {terminal} में ओवरटाइम के लिए अभी भी लोगों की ज़रूरत है। क्या आप आ पाएंगे?",
+      "silence_reply": "लगता है अभी बात नहीं हो पा रही। मैं बाद में दोबारा कॉल कर लूँगी। धन्यवाद!",
       "branches": {
         "yes": {
           "description": "Operator accepts the overtime shift.",
-          "keywords": ["हाँ", "आ सकता हूं", "ठीक है", "आ जाऊंगा"],
-          "reply": "धन्यवाद, मैं इस शिफ्ट के लिए आपका नाम दर्ज कर रहा हूं।",
+          "keywords": [
+            "हाँ",
+            "आ सकता हूं",
+            "ठीक है",
+            "आ जाऊंगा"
+          ],
+          "reply": "बहुत-बहुत धन्यवाद! मैं आपका नाम इस शिफ्ट के लिए लिख रही हूँ।",
           "outcome": "ot_accepted",
           "end_call": true
         },
         "no": {
           "description": "Operator declines the overtime shift.",
-          "keywords": ["नहीं", "नहीं आ सकता", "फ्री नहीं हूं"],
-          "reply": "समझ गया, बताने के लिए धन्यवाद।",
+          "keywords": [
+            "नहीं",
+            "नहीं आ सकता",
+            "फ्री नहीं हूं"
+          ],
+          "reply": "कोई बात नहीं, बिल्कुल ठीक है। बताने के लिए धन्यवाद!",
           "outcome": "ot_declined",
           "end_call": true
         },
         "asks_pay": {
           "description": "Operator asks about pay, OT rate or money.",
-          "keywords": ["कितना पैसा मिलेगा", "ओटी रेट क्या है"],
-          "reply": "इस कॉल पर मैं पैसों की जानकारी नहीं दे सकता — कृपया ऐप या अपने सुपरवाइज़र से जांच लें। क्या आप आ सकते हैं? कृपया 'हाँ' या 'नहीं' में उत्तर दें।",
+          "keywords": [
+            "कितना पैसा मिलेगा",
+            "ओटी रेट क्या है"
+          ],
+          "reply": "पैसों की जानकारी मैं इस कॉल पर नहीं दे पाऊँगी, वो आप ऐप में या अपने सुपरवाइज़र से देख लीजिए। तो, क्या आप आ पाएंगे?",
           "outcome": "awaiting_response",
           "end_call": false
         },
         "asks_hours": {
           "description": "Operator asks how many hours or how long the shift is.",
-          "keywords": ["कितने घंटे की है", "शिफ्ट कब तक है"],
-          "reply": "यह शिफ्ट {duration} की है। क्या आप आ सकते हैं? कृपया 'हाँ' या 'नहीं' में उत्तर दें।",
+          "keywords": [
+            "कितने घंटे की है",
+            "शिफ्ट कब तक है"
+          ],
+          "reply": "ये शिफ्ट {duration} की है। क्या आप आ पाएंगे?",
           "outcome": "awaiting_response",
           "end_call": false
         },
         "recent_ot": {
           "description": "Operator mentions recent OT or hours already worked.",
-          "keywords": ["मैंने कल भी ओटी किया था", "बहुत ओटी कर लिया है"],
-          "reply": "बताने के लिए धन्यवाद, मैं यह दर्ज कर रहा हूं। क्या आप आज भी आ सकते हैं? कृपया 'हाँ' या 'नहीं' में उत्तर दें।",
+          "keywords": [
+            "मैंने कल भी ओटी किया था",
+            "बहुत ओटी कर लिया है"
+          ],
+          "reply": "अच्छा, बताने के लिए धन्यवाद, मैंने ये नोट कर लिया है। फिर भी, क्या आप आज आ पाएंगे?",
           "outcome": "awaiting_response_flag_ot_hours_check",
           "end_call": false
         },
         "supervisor": {
           "description": "Operator wants to speak to a supervisor or a human.",
-          "keywords": ["मुझे सुपरवाइज़र से बात करनी है"],
-          "reply": "मैं यह बात आपके सुपरवाइज़र {supervisor_name} को बता दूंगा। आपका धन्यवाद!",
+          "keywords": [
+            "मुझे सुपरवाइज़र से बात करनी है"
+          ],
+          "reply": "ठीक है, मैं आपके सुपरवाइज़र को बता देती हूँ, वो आपसे बात कर लेंगे। धन्यवाद!",
           "outcome": "escalated_supervisor_notified",
           "end_call": true
         },
         "wrong_number": {
           "description": "Wrong number or the person is not the named operator.",
-          "keywords": ["गलत नंबर है", "मैं {employee_name} नहीं हूं"],
-          "reply": "असुविधा के लिए क्षमा करें। मैं इसे अपनी तरफ से ठीक करवा दूंगा। आपका धन्यवाद!",
+          "keywords": [
+            "गलत नंबर है",
+            "मैं {employee_name} नहीं हूं"
+          ],
+          "reply": "ओह, माफ़ कीजिए, शायद गलत नंबर लग गया। परेशानी के लिए माफ़ी चाहती हूँ। धन्यवाद!",
           "outcome": "data_mismatch_flagged",
           "end_call": true
         }
-      }
+      },
+      "unclear_reprompt": "माफ़ कीजिए, ठीक से सुनाई नहीं दिया। क्या आप आज ओवरटाइम के लिए आ पाएंगे?",
+      "silence_checkin": "हेलो? आप सुन पा रहे हैं?"
     },
     "gu": {
       "language_name": "Gujarati",
       "tts_language": "gu-IN",
       "transcription_language": "gu-IN",
       "voice": "gu-IN-Wavenet-B",
-      "opening": "નમસ્તે {employee_name}, તકલીફ આપવા બદલ માફ કરશો. આજે {terminal} મા ઓટી પર {shortfall_count} લોકોની અછત છે. શું તમે આવી શકશો? કૃપા કરી 'હા' અથવા 'ના' માં જવાબ આપો.",
-      "attempt_2_opening": "હેલો {employee_name} ભાઈ, તમારી ખૂબ જરૂર છે આ શિફ્ટ માટે. હું તમારું નામ નાખી દઉં? કૃપા કરી 'હા' અથવા 'ના' માં જવાબ આપો.",
-      "silence_reply": "એવું લાગે છે કે તમે અત્યારે જવાબ આપી શકતા નથી. અમે આને ઇનકાર ગણીને હવે પછીના યોગ્ય ઓપરેટરનો સંપર્ક કરીશું. તમારો આભાર!",
+      "opening": "નમસ્તે {employee_name}, હું શિફ્ટઈઝ માંથી બોલું છું. થોડી તકલીફ આપવા બદલ માફી. આજે {terminal} માં ઓવરટાઇમ માટે {shortfall_count} લોકોની જરૂર છે. શું તમે આવી શકશો?",
+      "attempt_2_opening": "નમસ્તે {employee_name}, શિફ્ટઈઝ માંથી ફરી બોલું છું. આજે {terminal} માં ઓવરટાઇમ માટે હજુ પણ લોકોની જરૂર છે. શું તમે આવી શકશો?",
+      "silence_reply": "લાગે છે અત્યારે વાત નથી થઈ શકતી. હું થોડી વાર પછી ફરી ફોન કરીશ. આભાર!",
       "branches": {
         "yes": {
           "description": "Operator accepts the overtime shift.",
-          "keywords": ["હા", "આવી શકીશ", "ભલે", "આવી જઈશ"],
-          "reply": "આભાર, હું આ શિફ્ટ માટે તમારું નામ નોંધી રહ્યો છું.",
+          "keywords": [
+            "હા",
+            "આવી શકીશ",
+            "ભલે",
+            "આવી જઈશ"
+          ],
+          "reply": "ખૂબ ખૂબ આભાર! હું આ શિફ્ટ માટે તમારું નામ લખી રહી છું.",
           "outcome": "ot_accepted",
           "end_call": true
         },
         "no": {
           "description": "Operator declines the overtime shift.",
-          "keywords": ["ના", "નહીં આવી શકું", "ફ્રી નથી"],
-          "reply": "સમજાયું, જણાવવા બદલ આભાર.",
+          "keywords": [
+            "ના",
+            "નહીં આવી શકું",
+            "ફ્રી નથી"
+          ],
+          "reply": "કંઈ વાંધો નહીં, બિલકુલ બરાબર છે. જણાવવા બદલ આભાર!",
           "outcome": "ot_declined",
           "end_call": true
         },
         "asks_pay": {
           "description": "Operator asks about pay, OT rate or money.",
-          "keywords": ["કેટલા પૈસા મળશે", "ઓટી રેટ શું છે"],
-          "reply": "આ કૉલ પર હું પૈસાની માહિતી આપી શકતો નથી — કૃપા કરી એપ અથવા તમારા સુપરવાઇઝર પાસેથી ચકાસો. શું તમે આવી શકશો? કૃપા કરી 'હા' અથવા 'ના' માં જવાબ આપો.",
+          "keywords": [
+            "કેટલા પૈસા મળશે",
+            "ઓટી રેટ શું છે"
+          ],
+          "reply": "પૈસાની માહિતી હું આ કૉલ પર નહીં આપી શકું, એ તમે એપમાં અથવા તમારા સુપરવાઇઝર પાસેથી જોઈ લો. તો, શું તમે આવી શકશો?",
           "outcome": "awaiting_response",
           "end_call": false
         },
         "asks_hours": {
           "description": "Operator asks how many hours or how long the shift is.",
-          "keywords": ["કેટલા કલાકની છે", "શિફ્ટ ક્યાં સુધી છે"],
-          "reply": "આ શિફ્ટ {duration} ની છે. શું તમે આવી શકશો? કૃપા કરી 'હા' અથવા 'ના' માં જવાબ આપો.",
+          "keywords": [
+            "કેટલા કલાકની છે",
+            "શિફ્ટ ક્યાં સુધી છે"
+          ],
+          "reply": "આ શિફ્ટ {duration} ની છે. શું તમે આવી શકશો?",
           "outcome": "awaiting_response",
           "end_call": false
         },
         "recent_ot": {
           "description": "Operator mentions recent OT or hours already worked.",
-          "keywords": ["મેં ગઈકાલે પણ ઓટી કરી હતી", "ઘણી ઓટી કરી લીધી છે"],
-          "reply": "જણાવવા બદલ આભાર, હું આ નોંધી રહ્યો છું. શું તમે આજે પણ આવી શકશો? કૃપા કરી 'હા' અથવા 'ના' માં જવાબ આપો.",
+          "keywords": [
+            "મેં ગઈકાલે પણ ઓટી કરી હતી",
+            "ઘણી ઓટી કરી લીધી છે"
+          ],
+          "reply": "સારું, જણાવવા બદલ આભાર, મેં આ નોંધી લીધું છે. તેમ છતાં, શું તમે આજે આવી શકશો?",
           "outcome": "awaiting_response_flag_ot_hours_check",
           "end_call": false
         },
         "supervisor": {
           "description": "Operator wants to speak to a supervisor or a human.",
-          "keywords": ["મારે સુપરવાઇઝર સાથે વાત કરવી છે"],
-          "reply": "હું આ વાત તમારા સુપરવાઇઝર {supervisor_name} ને જણાવીશ. તમારો આભાર!",
+          "keywords": [
+            "મારે સુપરવાઇઝર સાથે વાત કરવી છે"
+          ],
+          "reply": "બરાબર, હું તમારા સુપરવાઇઝરને જણાવી દઉં છું, તેઓ તમારી સાથે વાત કરશે. આભાર!",
           "outcome": "escalated_supervisor_notified",
           "end_call": true
         },
         "wrong_number": {
           "description": "Wrong number or the person is not the named operator.",
-          "keywords": ["ખોટો નંબર છે", "હું {employee_name} નથી"],
-          "reply": "અગવડ બદલ માફ કરશો. હું આ અમારા તરફથી સુધારી લઈશ. તમારો આભાર!",
+          "keywords": [
+            "ખોટો નંબર છે",
+            "હું {employee_name} નથી"
+          ],
+          "reply": "ઓહ, માફ કરજો, કદાચ ખોટો નંબર લાગી ગયો. તકલીફ બદલ માફી. આભાર!",
           "outcome": "data_mismatch_flagged",
           "end_call": true
         }
-      }
+      },
+      "unclear_reprompt": "માફ કરજો, બરાબર સંભળાયું નહીં. શું તમે આજે ઓવરટાઇમ માટે આવી શકશો?",
+      "silence_checkin": "હેલો? તમને સંભળાય છે?"
     }
   }
 }

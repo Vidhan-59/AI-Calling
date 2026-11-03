@@ -7,6 +7,12 @@ a trusted operator.
 Deliberately not applied to routers/campaigns.py's Twilio call-status
 webhook (/dialer/call-status) - Twilio cannot send our custom header, that
 endpoint is protected by knowing an unguessable CallSid instead.
+
+Outside development, an unset ADMIN_API_KEY is refused at server boot (see
+main.py's startup check) rather than just logged - "forgot to set it" must
+not be able to silently ship an unauthenticated admin surface to production.
+The warn-and-allow path below only remains reachable when
+ENVIRONMENT=development, where main.py's boot check doesn't apply.
 """
 
 import logging

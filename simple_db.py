@@ -51,6 +51,30 @@ def get_cursor():
             cursor.close()
 
 
+# Columns added to scenario_calls after it first shipped. ALTERed onto an
+# existing DB at startup, so old rows are kept (new columns start NULL).
+_SCENARIO_CALL_COLUMNS = [
+    # Written when the call ends - no AI involved.
+    ("absence_reason", "TEXT"),          # the caller's own words, verbatim
+    ("duration_secs", "REAL"),           # stream connected -> call ended
+    ("turn_count", "INTEGER"),           # caller utterances
+    ("avg_turn_latency_ms", "INTEGER"),  # caller stopped -> bot replied
+    ("transcript_text", "TEXT"),         # "Bot: ... / Caller: ..." one line per turn
+    ("placed_call_sid", "TEXT"),         # Twilio SID on the placement row
+    # Written by the post-call analysis (services/call_analysis.py, Qwen).
+    ("sentiment", "TEXT"),               # positive / neutral / negative
+    ("sentiment_score", "REAL"),         # -1.0 .. 1.0
+    ("emotion", "TEXT"),
+    ("reason_category", "TEXT"),         # illness / family / transport / ...
+    ("reason_english", "TEXT"),          # the reason, translated
+    ("summary", "TEXT"),                 # one English sentence
+    ("follow_up_required", "INTEGER"),   # 0/1 - a human should call back
+    ("follow_up_note", "TEXT"),
+    ("analysis_status", "TEXT"),         # pending / done / failed / skipped
+    ("analyzed_at", "TEXT"),
+]
+
+
 def init_db() -> None:
     with get_cursor() as cur:
         cur.execute(
@@ -129,6 +153,13 @@ def init_db() -> None:
         )
         cur.execute(
             "CREATE INDEX IF NOT EXISTS idx_scenario_calls_scenario ON scenario_calls(scenario_id)"
+        )
+        existing = {row[1] for row in cur.execute("PRAGMA table_info(scenario_calls)").fetchall()}
+        for name, decl in _SCENARIO_CALL_COLUMNS:
+            if name not in existing:
+                cur.execute(f"ALTER TABLE scenario_calls ADD COLUMN {name} {decl}")
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_scenario_calls_outcome ON scenario_calls(outcome)"
         )
 
     _seed_default_agent()

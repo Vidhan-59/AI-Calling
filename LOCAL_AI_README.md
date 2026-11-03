@@ -5,10 +5,13 @@ A zero-cloud-dependency alternative pipeline: **faster-whisper** (STT) → **Oll
 alternative alongside the existing Claude + Twilio ConversationRelay path — it
 does not replace or touch that code. See "Where this fits" below.
 
-**Read "Honest results" before deciding how to use this.** The short version:
-this is genuinely useful for offline/dev/QA work and proves the zero-cloud
-property for real, but it is **not viable for live phone calls** on CPU-only
-hardware without a GPU — that's a hardware ceiling, not a model choice.
+**Read "Honest results" before deciding how to use this.** UPDATE (2026-09-30):
+on a GPU (RTX 5060 Laptop, 8GB VRAM, 100%-offloaded via Ollama), this backend
+is fast enough for live calls (~1s/turn measured through the real
+conversation-agent code path) and is now the default live-call backend - see
+`LLM_BACKEND=local` / `SCENARIO_LLM_BACKEND=local` in `.env.example`. The
+CPU-only numbers below are kept for anyone running this without a GPU, where
+the original conclusion (offline/dev/QA only) still holds.
 
 ---
 
@@ -173,16 +176,20 @@ request. qwen2.5:7b-instruct matched Claude on all three.
 
 ### Latency: this is the number that actually matters
 
-| Model | Per-turn latency (this hardware) |
-|---|---|
-| Claude (cloud) | ~1-3 seconds |
-| phi4-mini (local, CPU) | 23-33 seconds |
-| qwen2.5:7b-instruct (local, CPU) | 33-60 seconds |
+| Model | Per-turn latency (CPU-only, Ryzen 7 5800HS) | Per-turn latency (GPU, RTX 5060 8GB) |
+|---|---|---|
+| Claude (cloud) | ~1-3 seconds | ~1-3 seconds |
+| phi4-mini (local) | 23-33 seconds | not re-measured on GPU |
+| qwen2.5:7b-instruct (local) | 33-60 seconds | **0.9-1.7 seconds** (measured through the real conversation-agent code path, 100% GPU-resident) |
+| qwen3:8b (local) | not measured | 3.2-3.8s steady-state (2-4x slower than qwen2.5, likely its default "thinking mode"), **and returned empty replies on non-tool turns** - a real compatibility defect with this app's Ollama tool-calling contract, not adopted |
 
-**This is a hardware ceiling, not a software one.** A bigger/better model is
-*slower*, not faster - there is no local model choice on this CPU that gets
-into live-call range. 20-60 seconds of dead air after every sentence is not
-a usable product regardless of classification accuracy.
+**On CPU, this is a hardware ceiling, not a software one** - a bigger/better
+model is slower, not faster, and 20-60 seconds of dead air after every
+sentence is not usable regardless of accuracy. **On a GPU, the ceiling is
+gone**: qwen2.5:7b-instruct is fast enough for live calls. Don't assume a
+newer/bigger model is automatically better, though - qwen3:8b was slower
+*and* buggier here; re-verify any model swap the same way (through
+`run_turn()`, not a bare chat ping) before trusting it on a live call.
 
 ### The bug this project's own smoke test caught
 
@@ -203,11 +210,11 @@ needed no such fix; it never phoned home.
 
 | Use case | Recommended |
 |---|---|
-| Live phone calls | **Claude** (`SCENARIO_LLM_BACKEND=claude`, the default) - do not change this without a GPU |
-| Offline/batch reprocessing of recorded calls | Local (`SCENARIO_LLM_BACKEND=local`) with `qwen2.5:7b-instruct` |
+| Live phone calls, on a GPU (this project's current setup) | **Local** (`SCENARIO_LLM_BACKEND=local`, `LLM_BACKEND=local`, the current default) with `qwen2.5:7b-instruct` - ~1s/turn, verified via `run_turn()` |
+| Live phone calls, CPU-only, no GPU | **Claude** (`SCENARIO_LLM_BACKEND=claude`) - do not use local without a GPU |
+| Offline/batch reprocessing of recorded calls | Local with `qwen2.5:7b-instruct` |
 | Dev/QA testing scenario scripts, zero API cost | Local, either model - use `phi4-mini` for faster iteration |
 | Proving the "no cloud dependency" property | Local - see `tests/local_ai/test_e2e_offline_smoke.py` |
-| A GPU becomes available later | Re-run the comparison above. Latency should drop substantially; re-verify before trusting it on a live call |
 
 ---
 

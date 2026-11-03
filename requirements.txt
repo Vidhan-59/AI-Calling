@@ -23,10 +23,22 @@ redis>=5.0
 twilio
 plivo
 
-# --- Real-time media framework (Phase 2) ---
-pipecat-ai
+# --- Timezone data for zoneinfo (services/dispatch/admission.py's calling-
+# window check) - stdlib zoneinfo has no bundled IANA database on Windows,
+# so ZoneInfo("Asia/Kolkata") raises ZoneInfoNotFoundError without this.
+# A no-op on Linux/macOS, which get tz data from the OS instead.
+tzdata
 
-# --- HTTP clients for vendor APIs (Exotel/Plivo/Sarvam/ElevenLabs/Azure/Odoo) ---
+# --- Real-time media framework (Phase 2 -> now live, see services/voice_pipeline/) ---
+# Pinned to what's actually installed/tested. Extras: whisper (faster-whisper
+# STT), sarvam (Sarvam STT, used when USE_SARVAM_STT=true; TTS is OmniVoice, tts_service/),
+# websocket (FastAPI-native transport), rnnoise (neural noise suppression,
+# services/voice_pipeline/audio_frontend.py), webrtc (aiortc, browser calls -
+# routers/webrtc.py). Twilio Media Streams support and
+# Silero VAD ship in core, no extra needed.
+pipecat-ai[whisper,sarvam,websocket,rnnoise,webrtc]==1.7.0
+
+# --- HTTP clients for vendor APIs (Exotel/Plivo/Sarvam/Odoo) and the OmniVoice TTS service ---
 httpx
 
 # --- Config / flow graphs ---
@@ -35,3 +47,5 @@ PyYAML
 # --- Observability ---
 opentelemetry-api
 opentelemetry-sdk
+
+pypdf  # Studio knowledge base: PDF text extraction (DOCX/CSV/TXT/URL use the stdlib)

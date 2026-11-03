@@ -100,8 +100,11 @@ def log_turn(
     end_call: bool = False,
     sentiment: Optional[dict] = None,
     classification: Optional[dict] = None,
+    timings_ms: Optional[dict] = None,
 ) -> int:
     """Append one turn (user utterance or assistant reply) to the log.
+    `timings_ms` records where the turn's latency went (e.g. stt, classify,
+    total) so slow turns can be diagnosed from the log alone.
     Returns the turn's seq number, so a caller that doesn't have the
     sentiment yet (see set_turn_sentiment) can log the turn immediately and
     backfill it once classification finishes, without disturbing transcript
@@ -133,6 +136,8 @@ def log_turn(
             turn_entry["sentiment"] = sentiment
         if classification:
             turn_entry["classification"] = classification
+        if timings_ms:
+            turn_entry["timings_ms"] = timings_ms
 
         data.setdefault("turns", []).append(turn_entry)
 
@@ -202,6 +207,16 @@ def finalize_call_log(
             "escalation_count": len(data.get("escalation_flags", [])),
         }
 
+        _write_log(call_sid, data)
+
+
+def set_call_analysis(call_sid: str, analysis: dict) -> None:
+    """Post-call analysis (services/call_analysis.py), mirrored into the log."""
+    with _lock:
+        data = _read_log(call_sid)
+        if not data:
+            return
+        data["analysis"] = analysis
         _write_log(call_sid, data)
 
 

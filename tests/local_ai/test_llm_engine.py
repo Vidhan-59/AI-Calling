@@ -66,6 +66,57 @@ async def test_classify_structured_salvages_json_wrapped_in_prose(monkeypatch):
     assert result == {"branch": "no", "confidence": 0.8}
 
 
+class _SequentialFakeAsyncClient(_FakeAsyncClient):
+    """Returns a different queued response on each successive post() call -
+    for testing the one-retry-on-malformed-JSON path, which a single fixed
+    _FakeAsyncClient response can't exercise."""
+
+    def __init__(self, responses):
+        super().__init__()
+        self._responses = list(responses)
+
+    async def post(self, path, json=None):
+        return self._responses.pop(0)
+
+
+@pytest.mark.asyncio
+async def test_classify_structured_retries_once_on_malformed_json(monkeypatch):
+    # Observed live: Ollama occasionally returns invalid JSON despite the
+    # format constraint (e.g. right after a model swap in VRAM) - one retry
+    # should recover instead of crashing the whole call turn.
+    responses = [
+        _FakeResponse({"message": {"content": '{"branch": "yes", "confidence": 0.9'}}),  # truncated
+        _FakeResponse({"message": {"content": '{"branch": "yes", "confidence": 0.9}'}}),
+    ]
+    client = _SequentialFakeAsyncClient(responses)
+    monkeypatch.setattr(llm_engine, "_client", lambda: client)
+
+    result = await llm_engine.classify_structured("system", "haan", {"type": "object"})
+
+    assert result == {"branch": "yes", "confidence": 0.9}
+    assert len(client._responses) == 0  # both queued responses were consumed
+
+
+@pytest.mark.asyncio
+async def test_classify_structured_falls_back_to_unclear_when_retry_also_fails(monkeypatch):
+    # Observed live: qwen2.5:7b-instruct reproducibly (not just once) returned
+    # invalid JSON for real caller speech. Must not raise here - the caller
+    # (services/scenario_engine.py) used to treat that exception as "the
+    # operator said nothing" (on_silence()), which is wrong: it heard them,
+    # it just couldn't parse the classification. "unclear" is the honest
+    # fallback and lets the flow's own re-ask/clarify branch handle it.
+    responses = [
+        _FakeResponse({"message": {"content": '{"branch": "yes"'}}),
+        _FakeResponse({"message": {"content": '{"branch": "yes"'}}),
+    ]
+    monkeypatch.setattr(llm_engine, "_client", lambda: _SequentialFakeAsyncClient(responses))
+
+    result = await llm_engine.classify_structured("system", "haan", {"type": "object"})
+
+    assert result["branch"] == "unclear"
+    assert result["confidence"] == 0.0
+
+
 @pytest.mark.asyncio
 async def test_classify_structured_raises_when_ollama_unreachable(monkeypatch):
     monkeypatch.setattr(llm_engine, "_client", lambda: _FakeAsyncClient(raise_connect_error=True))

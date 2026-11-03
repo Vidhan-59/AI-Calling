@@ -1,0 +1,899 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Studio</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --surface: #ffffff; --surface-2: #f0f2f5; --ink: #12161d; --muted: #5b6575; --faint: #8a94a4;
+    --line: #e1e5eb; --line-strong: #cbd2dc;
+    --accent: #2b59d9; --accent-ink: #ffffff; --accent-soft: #e8eefc;
+    --ok: #17794a; --ok-soft: #e3f4ea; --warn: #8f5f00; --warn-soft: #fdf1d8; --bad: #bf3a2f; --bad-soft: #fbe7e4;
+    --shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 1px 3px rgba(16, 24, 40, .06);
+    --shadow-lg: 0 12px 32px rgba(16, 24, 40, .16);
+    --radius: 10px; --radius-sm: 7px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1217; --surface: #171b22; --surface-2: #1e232c; --ink: #e9edf3; --muted: #a0aab9; --faint: #727d8e;
+      --line: #28303b; --line-strong: #394352;
+      --accent: #7a9cf5; --accent-ink: #0b1020; --accent-soft: #1d2744;
+      --ok: #4cc38a; --ok-soft: #12291f; --warn: #e3b341; --warn-soft: #2d2410; --bad: #f0766b; --bad-soft: #321a18;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .4); --shadow-lg: 0 12px 32px rgba(0, 0, 0, .5);
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  h1, h2, h3, h4 { margin: 0; font-weight: 600; letter-spacing: -.01em; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* shell */
+  .topbar { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 20px; padding: 0 24px; height: 56px;
+            background: var(--surface); border-bottom: 1px solid var(--line); }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 650; font-size: 15px; color: var(--ink); }
+  .brand i { width: 22px; height: 22px; border-radius: 6px; background: var(--accent); display: grid; place-items: center; }
+  .brand i::after { content: ""; width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--accent-ink); }
+  .nav { display: flex; gap: 2px; }
+  .nav a { padding: 6px 12px; border-radius: 6px; color: var(--muted); font-weight: 500; }
+  .nav a:hover { background: var(--surface-2); text-decoration: none; color: var(--ink); }
+  .nav a[aria-current="page"] { color: var(--ink); background: var(--surface-2); }
+  .spacer { flex: 1; }
+  .conn { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
+  .dot.ok { background: var(--ok); } .dot.bad { background: var(--bad); } .dot.warn { background: var(--warn); }
+  main { max-width: 1240px; margin: 0 auto; padding: 28px 24px 80px; }
+
+  /* primitives */
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 34px; padding: 0 14px;
+         border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface); cursor: pointer; font-weight: 500;
+         white-space: nowrap; transition: background .12s, border-color .12s, opacity .12s; }
+  .btn:hover { background: var(--surface-2); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  .btn.primary:hover { opacity: .92; }
+  .btn.danger { color: var(--bad); }
+  .btn.ghost { border-color: transparent; background: transparent; }
+  .btn.ghost:hover { background: var(--surface-2); }
+  .btn.sm { height: 28px; padding: 0 10px; font-size: 13px; }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+  .pill { display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 8px; border-radius: 99px; font-size: 12px; font-weight: 500;
+          background: var(--surface-2); color: var(--muted); border: 1px solid var(--line); }
+  .pill.ok { background: var(--ok-soft); color: var(--ok); border-color: transparent; }
+  .pill.warn { background: var(--warn-soft); color: var(--warn); border-color: transparent; }
+  .pill.bad { background: var(--bad-soft); color: var(--bad); border-color: transparent; }
+  .pill.accent { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+  .muted { color: var(--muted); } .faint { color: var(--faint); } .small { font-size: 12.5px; }
+  .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .between { justify-content: space-between; }
+  .stack { display: grid; gap: 14px; }
+  label.f { display: block; }
+  label.f > span { display: block; font-size: 12.5px; font-weight: 500; color: var(--muted); margin-bottom: 5px; }
+  input[type=text], input[type=url], input[type=password], input[type=search], select, textarea {
+    width: 100%; padding: 7px 10px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); }
+  textarea { resize: vertical; min-height: 84px; line-height: 1.5; }
+  input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+  .counter { text-align: right; font-size: 12px; color: var(--faint); margin-top: 3px; }
+  .counter.over { color: var(--bad); }
+  .hint { color: var(--muted); font-size: 12.5px; margin: 4px 0 0; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .empty { padding: 36px 20px; text-align: center; color: var(--muted); }
+  .empty h3 { color: var(--ink); margin-bottom: 4px; }
+  .banner { padding: 10px 14px; border-radius: var(--radius-sm); font-size: 13px; border: 1px solid var(--line); background: var(--surface-2); }
+  .banner.warn { background: var(--warn-soft); color: var(--warn); border-color: transparent; }
+  .banner.bad { background: var(--bad-soft); color: var(--bad); border-color: transparent; }
+  .banner.ok { background: var(--ok-soft); color: var(--ok); border-color: transparent; }
+
+  /* dashboard */
+  .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 22px; flex-wrap: wrap; }
+  .page-head h1 { font-size: 24px; } .page-head p { margin: 4px 0 0; color: var(--muted); }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 26px; }
+  .stat { padding: 14px 16px; }
+  .stat .v { font-size: 26px; font-weight: 650; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+  .stat .k { color: var(--muted); font-size: 12.5px; }
+  .section-title { display: flex; justify-content: space-between; align-items: center; margin: 0 0 12px; }
+  .section-title h2 { font-size: 15px; }
+  .agents { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; }
+  .agent { padding: 16px; display: grid; gap: 12px; transition: border-color .12s, box-shadow .12s; }
+  .agent:hover { border-color: var(--line-strong); box-shadow: var(--shadow-lg); }
+  .agent-head { display: flex; gap: 12px; align-items: center; }
+  .avatar { width: 44px; height: 44px; border-radius: 12px; flex: none; display: grid; place-items: center; font-size: 22px;
+            font-weight: 600; overflow: hidden; background: var(--accent-soft); color: var(--accent); }
+  .avatar img { width: 100%; height: 100%; object-fit: cover; }
+  .avatar.lg { width: 64px; height: 64px; border-radius: 16px; font-size: 30px; }
+  .agent h3 { font-size: 15px; } .agent-meta { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; font-size: 13px; }
+  .agent-meta dt { color: var(--faint); } .agent-meta dd { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .activity { display: grid; }
+  .activity div { display: flex; justify-content: space-between; gap: 12px; padding: 10px 16px; border-top: 1px solid var(--line); }
+  .activity div:first-child { border-top: 0; }
+
+  /* editor */
+  .editor { display: grid; grid-template-columns: 220px minmax(0, 1fr) 330px; gap: 20px; align-items: start; }
+  .rail { position: sticky; top: 76px; display: grid; gap: 14px; }
+  .steps { display: grid; gap: 2px; padding: 8px; }
+  .step { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 7px; cursor: pointer; color: var(--muted); border: 0; background: none; text-align: left; width: 100%; }
+  .step:hover { background: var(--surface-2); }
+  .step[aria-current="step"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .step .n { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; border: 1.5px solid var(--line-strong); flex: none; }
+  .step.done .n { background: var(--ok); border-color: var(--ok); color: #fff; }
+  .progress { height: 6px; border-radius: 4px; background: var(--surface-2); overflow: hidden; }
+  .progress > i { display: block; height: 100%; background: var(--accent); transition: width .25s; }
+  .panel { padding: 22px; }
+  .panel > h2 { font-size: 17px; margin-bottom: 2px; } .panel > .lead { margin: 0 0 18px; color: var(--muted); }
+  .side { position: sticky; top: 76px; display: grid; gap: 14px; }
+  .side .card { padding: 16px; }
+  .side h3 { font-size: 14px; margin-bottom: 8px; }
+  .savebar { display: flex; gap: 8px; align-items: center; padding: 12px 14px; }
+  .avatar-picker { display: flex; flex-wrap: wrap; gap: 6px; }
+  .avatar-picker button { width: 36px; height: 36px; border-radius: 9px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; font-size: 18px; }
+  .avatar-picker button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+
+  /* voice */
+  .voices { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; }
+  .voice { text-align: left; padding: 12px; border: 1.5px solid var(--line); border-radius: var(--radius); background: var(--surface); cursor: pointer; display: grid; gap: 4px; }
+  .voice:hover { border-color: var(--line-strong); }
+  .voice[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+  .voice b { font-weight: 600; }
+  .range { display: grid; gap: 4px; }
+  .range .top { display: flex; justify-content: space-between; align-items: baseline; }
+  .range .val { font-variant-numeric: tabular-nums; font-weight: 600; }
+  input[type=range] { width: 100%; accent-color: var(--accent); height: 24px; }
+  .caps { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .caps td { padding: 8px 6px; border-top: 1px solid var(--line); vertical-align: top; }
+  .caps td:first-child { width: 150px; font-weight: 500; }
+  .disabled-control { opacity: .55; pointer-events: none; }
+  details.create { border: 1px dashed var(--line-strong); border-radius: var(--radius); padding: 12px 14px; }
+  details.create summary { cursor: pointer; font-weight: 600; }
+
+  /* preview */
+  .wave { display: flex; align-items: center; gap: 3px; height: 40px; margin: 10px 0; }
+  .wave i { flex: 1; background: var(--line-strong); border-radius: 2px; height: 20%; transition: background .2s; }
+  .wave.live i { background: var(--accent); animation: bar 0.9s ease-in-out infinite; }
+  @keyframes bar { 0%, 100% { height: 18%; } 50% { height: 92%; } }
+  @media (prefers-reduced-motion: reduce) { .wave.live i { animation: none; height: 60%; } }
+
+  /* training */
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 16px; flex-wrap: wrap; }
+  .tab { padding: 8px 12px; border: 0; background: none; cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; font-weight: 500; }
+  .tab[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab .pill { margin-left: 6px; }
+  .item { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; background: var(--surface); display: grid; gap: 10px; }
+  .item textarea { min-height: 70px; }
+  .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+  .turn { display: grid; grid-template-columns: 96px 1fr auto; gap: 8px; align-items: start; }
+  .turn .who { height: 32px; }
+  table.qa { width: 100%; border-collapse: collapse; }
+  table.qa th { text-align: left; font-size: 12px; color: var(--faint); font-weight: 500; padding: 6px 8px; }
+  table.qa td { padding: 8px; border-top: 1px solid var(--line); vertical-align: top; }
+  .hit { border-left: 3px solid var(--accent); padding: 6px 10px; background: var(--surface-2); border-radius: 0 6px 6px 0; margin-top: 8px; }
+
+  /* call now */
+  .checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  .checks li { display: flex; gap: 8px; align-items: baseline; }
+  .checks .ok { color: var(--ok); } .checks .no { color: var(--bad); }
+  .callbox { border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; display: grid; gap: 12px; background: var(--surface-2); }
+  .callstate { display: flex; align-items: center; gap: 10px; font-weight: 600; }
+  .callstate .dot { width: 10px; height: 10px; }
+  .callstate .dot.live { background: var(--ok); animation: pulse 1.2s infinite; }
+  @keyframes pulse { 50% { opacity: .3; } }
+  .transcript { display: grid; gap: 8px; max-height: 340px; overflow: auto; }
+  .line { display: grid; grid-template-columns: 74px 1fr; gap: 10px; }
+  .line b { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); padding-top: 2px; }
+  .line.agent b { color: var(--accent); }
+
+  /* modal / toast */
+  .overlay { position: fixed; inset: 0; background: rgba(8, 12, 20, .5); display: grid; place-items: center; z-index: 50; padding: 20px; }
+  .modal { width: min(760px, 100%); max-height: 86vh; overflow: auto; padding: 22px; box-shadow: var(--shadow-lg); }
+  pre.prompt { white-space: pre-wrap; word-break: break-word; background: var(--surface-2); padding: 14px; border-radius: 8px; font-size: 13px; max-height: 50vh; overflow: auto; }
+  #toasts { position: fixed; right: 18px; bottom: 18px; display: grid; gap: 8px; z-index: 60; }
+  .toast { padding: 10px 14px; border-radius: 8px; background: var(--ink); color: var(--bg); box-shadow: var(--shadow-lg); max-width: 380px; font-size: 13px; }
+  .toast.bad { background: var(--bad); color: #fff; }
+  .skeleton { background: linear-gradient(90deg, var(--surface-2), var(--line), var(--surface-2)); background-size: 200% 100%; animation: sk 1.2s infinite; border-radius: 8px; min-height: 120px; }
+  @keyframes sk { to { background-position: -200% 0; } }
+
+  @media (max-width: 1100px) { .editor { grid-template-columns: 200px minmax(0, 1fr); } .side { grid-column: 1 / -1; position: static; } }
+  @media (max-width: 760px) {
+    main { padding: 16px 14px 60px; } .topbar { padding: 0 14px; gap: 10px; }
+    .editor { grid-template-columns: 1fr; } .rail { position: static; } .steps { display: flex; overflow-x: auto; }
+    .step { white-space: nowrap; } .grid2, .grid3 { grid-template-columns: 1fr; }
+    .turn { grid-template-columns: 1fr; } .conn span.t { display: none; }
+  }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="#/"><i></i>Agent Studio</a>
+  <nav class="nav" aria-label="Main">
+    <a href="#/" id="navAgents">AI Agents</a>
+    <a href="/voice-studio" target="_blank" rel="noopener">Voices</a>
+    <a href="#/diagnostics" id="navDiag">Audio diagnostics</a>
+  </nav>
+  <div class="spacer"></div>
+  <div class="conn"><span class="dot" id="connDot"></span><span class="t" id="connText">Not connected</span>
+    <button class="btn sm" id="keyBtn">API key</button></div>
+</header>
+<main id="app" aria-live="polite"></main>
+<div id="toasts" role="status"></div>
+<div id="modalRoot"></div>
+
+<script>
+"use strict";
+/* ---------- tiny helpers ---------- */
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const LANG = { hi: "Hindi", gu: "Gujarati", en: "English" };
+const EMOJI = ["🎧", "🤖", "📞", "🧑‍💼", "👩‍💼", "🛠️", "📅", "💬", "🚚", "🏥", "🎓", "🛒"];
+const store = {
+  get key() { try { return localStorage.getItem("adminKey") || ""; } catch { return ""; } },
+  set key(v) { try { localStorage.setItem("adminKey", v); } catch { /* private mode */ } },
+};
+
+class ApiError extends Error { constructor(status, msg) { super(msg); this.status = status; } }
+async function api(path, opts = {}) {
+  const headers = { ...(opts.headers || {}) };
+  if (store.key) headers["X-API-Key"] = store.key;
+  let body = opts.body;
+  if (body && !(body instanceof FormData) && typeof body !== "string") { body = JSON.stringify(body); headers["Content-Type"] = "application/json"; }
+  const res = await fetch(path, { ...opts, headers, body });
+  if (!res.ok) {
+    let msg = res.statusText;
+    try { const j = await res.json(); msg = typeof j.detail === "string" ? j.detail : (j.detail || []).map((d) => `${(d.loc || []).slice(1).join(".")}: ${d.msg}`).join("; ") || msg; } catch { /* not json */ }
+    throw new ApiError(res.status, msg);
+  }
+  if (res.status === 204) return null;
+  const ct = res.headers.get("content-type") || "";
+  return ct.includes("json") ? res.json() : res;
+}
+function toast(msg, bad = false, ms = 4000) {
+  const t = document.createElement("div"); t.className = "toast" + (bad ? " bad" : ""); t.textContent = msg;
+  $("#toasts").appendChild(t); setTimeout(() => t.remove(), ms);
+}
+function setConn(state, text) { $("#connDot").className = "dot " + state; $("#connText").textContent = text; }
+const ago = (iso) => {
+  if (!iso) return "-"; const s = (Date.now() - new Date(iso)) / 1000;
+  if (s < 60) return "just now"; if (s < 3600) return Math.floor(s / 60) + " min ago";
+  if (s < 86400) return Math.floor(s / 3600) + " h ago"; return new Date(iso).toLocaleDateString();
+};
+const fmtDur = (s) => { s = Math.round(s || 0); return s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s`; };
+function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
+function modal(html, { onClose } = {}) {
+  const root = $("#modalRoot");
+  root.innerHTML = `<div class="overlay" role="dialog" aria-modal="true"><div class="card modal">${html}</div></div>`;
+  const close = () => { root.innerHTML = ""; document.removeEventListener("keydown", onKey); onClose && onClose(); };
+  const onKey = (e) => e.key === "Escape" && close();
+  document.addEventListener("keydown", onKey);
+  $(".overlay", root).addEventListener("mousedown", (e) => e.target.classList.contains("overlay") && close());
+  $$("[data-close]", root).forEach((b) => (b.onclick = close));
+  return close;
+}
+function confirmDialog(title, text, okLabel = "Delete") {
+  return new Promise((resolve) => {
+    const close = modal(`<h3>${esc(title)}</h3><p class="muted">${esc(text)}</p>
+      <div class="row" style="justify-content:flex-end;margin-top:18px"><button class="btn" data-close>Cancel</button><button class="btn danger" id="cfOk">${esc(okLabel)}</button></div>`,
+      { onClose: () => resolve(false) });
+    $("#cfOk").onclick = () => { resolve(true); $("#modalRoot").innerHTML = ""; };
+    void close;
+  });
+}
+function avatarHtml(a, cls = "") {
+  const v = a.avatar || "";
+  if (v.startsWith("data:image/")) return `<div class="avatar ${cls}"><img alt="" src="${esc(v)}"></div>`;
+  return `<div class="avatar ${cls}">${esc(v || (a.name || "?").trim().charAt(0).toUpperCase())}</div>`;
+}
+const statusPill = (s) => `<span class="pill ${s === "active" ? "ok" : s === "published" ? "accent" : ""}">${s === "active" ? "● " : ""}${esc(s[0].toUpperCase() + s.slice(1))}</span>`;
+
+/* ---------- state ---------- */
+const S = { meta: null, voices: null, voicesErr: "", stats: null, agents: [], draft: null, saved: "", id: null, step: 1, tab: "script", training: [],
+            preview: { state: "idle", url: "", sig: "", err: "", text: "" } };
+const SAMPLE = { hi: "नमस्ते, मैं आपकी कैसे मदद कर सकती हूँ?", gu: "નમસ્તે, હું તમારી કેવી રીતે મદદ કરી શકું?", en: "Hello! Thank you for calling. How can I help you today?" };
+const blankAgent = () => ({ name: "", description: "", avatar: "🎧", use_case_id: "", language: "hi", status: "draft",
+  voice: { voice_id: null, speed: 1.0, style: null, tone: null }, personality: {}, system_instructions: "", basic: { purpose: "", objective: "" } });
+const dirty = () => S.draft && JSON.stringify(S.draft) !== S.saved;
+window.addEventListener("beforeunload", (e) => { if (dirty()) { e.preventDefault(); e.returnValue = ""; } });
+
+/* ---------- router ---------- */
+async function route() {
+  const h = location.hash.replace(/^#/, "") || "/";
+  $$(".nav a").forEach((a) => a.removeAttribute("aria-current"));
+  stopPreview(); stopCallPolling();
+  if (!(await ensureConnected())) return;
+  try {
+    if (h === "/") { $("#navAgents").setAttribute("aria-current", "page"); await dashboard(); }
+    else if (h === "/diagnostics") { $("#navDiag").setAttribute("aria-current", "page"); await diagnostics(); }
+    else if (h.startsWith("/agent/")) { $("#navAgents").setAttribute("aria-current", "page"); await editor(h.slice(7)); }
+    else location.hash = "#/";
+  } catch (e) { handleError(e); }
+}
+function handleError(e) {
+  if (e.status === 401) { setConn("bad", "Key rejected"); $("#app").innerHTML = connectCard("The API key was rejected. Enter the admin key to continue."); bindConnect(); }
+  else { console.error(e); $("#app").innerHTML = `<div class="card empty"><h3>Something went wrong</h3><p>${esc(e.message)}</p><button class="btn" onclick="route()">Try again</button></div>`; }
+}
+const connectCard = (msg) => `<div class="card" style="max-width:440px;margin:60px auto;padding:24px"><h2>Connect</h2><p class="muted">${esc(msg)}</p>
+  <label class="f"><span>Admin API key (X-API-Key)</span><input type="password" id="ckey" autocomplete="off" value="${esc(store.key)}"></label>
+  <div class="row" style="margin-top:14px"><button class="btn primary" id="cgo">Connect</button></div></div>`;
+function bindConnect() { $("#cgo").onclick = () => { store.key = $("#ckey").value.trim(); S.meta = null; route(); }; $("#ckey").onkeydown = (e) => e.key === "Enter" && $("#cgo").click(); }
+async function ensureConnected() {
+  if (S.meta) return true;
+  try {
+    S.meta = await api("/studio/meta");
+    setConn("ok", "Connected");
+    return true;
+  } catch (e) {
+    if (e.status === 401) { setConn("bad", "API key needed"); $("#app").innerHTML = connectCard(store.key ? "The API key was rejected." : "This server requires an admin key. Leave blank if ADMIN_API_KEY is not set."); bindConnect(); }
+    else { setConn("bad", "Server unreachable"); $("#app").innerHTML = `<div class="card empty"><h3>Cannot reach the server</h3><p>${esc(e.message)}</p><button class="btn" onclick="route()">Retry</button></div>`; }
+    return false;
+  }
+}
+$("#keyBtn").onclick = () => { S.meta = null; $("#app").innerHTML = connectCard("Enter the admin API key."); bindConnect(); };
+window.addEventListener("hashchange", async () => {
+  if (dirty() && !(await confirmDialog("Discard unsaved changes?", "You have unsaved changes on this agent.", "Discard"))) { history.back(); return; }
+  S.draft = null; route();
+});
+
+/* ---------- dashboard ---------- */
+async function dashboard() {
+  $("#app").innerHTML = `<div class="page-head"><div><h1>AI Agents</h1><p>Create, train and manage your voice agents.</p></div></div>
+    <div class="stats">${"<div class='card stat skeleton'></div>".repeat(7)}</div><div class="skeleton"></div>`;
+  const [stats, list] = await Promise.all([api("/studio/stats"), api("/studio/agents")]);
+  S.stats = stats; S.agents = list.agents;
+  const voiceNames = await voiceNameMap();
+  const uc = Object.fromEntries(S.meta.use_cases.map((u) => [u.id, u.name]));
+  const stat = (v, k) => `<div class="card stat"><div class="v">${v}</div><div class="k">${k}</div></div>`;
+  $("#app").innerHTML = `
+    <div class="page-head"><div><h1>AI Agents</h1><p>Create, train and manage your voice agents.</p></div>
+      <a class="btn primary" href="#/agent/new" style="height:38px">+ Create New Agent</a></div>
+    <div class="stats">
+      ${stat(stats.agents_total, "Total agents")}${stat(stats.agents_active, "Active agents")}${stat(stats.agents_published, "Published agents")}${stat(stats.agents_draft, "Draft agents")}
+      ${stat(stats.calls_total, "Total calls")}
+      ${stat(stats.calls_total ? `${stats.calls_successful}<span class="muted small"> · ${stats.success_rate}%</span>` : "0", "Successful conversations")}
+      ${stat(stats.calls_total ? fmtDur(stats.avg_duration_secs) : "-", "Avg call duration")}
+    </div>
+    <div class="section-title"><h2>Your agents</h2></div>
+    ${S.agents.length ? `<div class="agents">${S.agents.map((a) => `
+      <article class="card agent" data-id="${esc(a.id)}">
+        <div class="agent-head">${avatarHtml(a)}<div style="min-width:0;flex:1"><h3 class="trunc">${esc(a.name)}</h3><div class="muted small">${esc(a.description || "No description")}</div></div>${statusPill(a.status)}</div>
+        <dl class="agent-meta">
+          <dt>Voice</dt><dd>${esc(voiceNames[a.voice.voice_id] || (a.voice.voice_id ? a.voice.voice_id : "Library default"))}</dd>
+          <dt>Language</dt><dd>${esc(LANG[a.language] || a.language)}</dd>
+          <dt>Use case</dt><dd>${esc(uc[a.use_case_id] || a.use_case_id || "Not attached")}</dd>
+          <dt>Calls</dt><dd>${a.call_count || 0}</dd>
+          <dt>Updated</dt><dd>${ago(a.updated_at)}</dd>
+        </dl>
+        <div class="row"><a class="btn sm" href="#/agent/${esc(a.id)}">Edit</a>
+          <button class="btn sm" data-act="dup">Duplicate</button><button class="btn sm danger" data-act="del">Delete</button></div>
+      </article>`).join("")}</div>`
+    : `<div class="card empty"><h3>No agents yet</h3><p>Create your first voice agent: pick a voice, write its instructions, and train it on your scripts.</p><a class="btn primary" href="#/agent/new">+ Create New Agent</a></div>`}
+    <div class="section-title" style="margin-top:28px"><h2>Recent activity</h2></div>
+    <div class="card activity">${activityRows(stats)}</div>`;
+  $$(".agent").forEach((card) => {
+    const id = card.dataset.id;
+    $("[data-act=dup]", card).onclick = async () => { try { await api(`/studio/agents/${id}/duplicate`, { method: "POST" }); toast("Agent duplicated"); dashboard(); } catch (e) { toast(e.message, true); } };
+    $("[data-act=del]", card).onclick = async () => {
+      const a = S.agents.find((x) => x.id === id);
+      if (await confirmDialog(`Delete "${a.name}"?`, "Its training material is deleted too. Past calls stay in call history.")) {
+        try { await api(`/studio/agents/${id}`, { method: "DELETE" }); toast("Agent deleted"); dashboard(); } catch (e) { toast(e.message, true); }
+      }
+    };
+  });
+}
+function activityRows(stats) {
+  const rows = [];
+  stats.recent_agents.forEach((a) => rows.push(`<div><span>${statusPill(a.status)} <a href="#/agent/${esc(a.id)}">${esc(a.name)}</a> <span class="muted">was updated</span></span><span class="faint small">${ago(a.updated_at)}</span></div>`));
+  stats.recent_calls.forEach((c) => rows.push(`<div><span>Call with <b>${esc(c.agent_name || "deleted agent")}</b> <span class="muted">· ${esc(c.status)}</span></span><span class="faint small">${ago(c.started_at)}</span></div>`));
+  return rows.join("") || `<div class="muted">Nothing yet.</div>`;
+}
+async function loadVoices(force = false) {
+  if (S.voices && !force) return S.voices;
+  try { S.voices = await api("/voices"); S.voicesErr = ""; }
+  catch (e) { S.voices = null; S.voicesErr = e.status === 503 ? "The voice service (OmniVoice) is offline." : e.message; }
+  return S.voices;
+}
+async function voiceNameMap() { const v = await loadVoices(); return Object.fromEntries((v?.voices || []).map((x) => [x.id, x.name])); }
+
+/* ---------- diagnostics ---------- */
+async function diagnostics() {
+  $("#app").innerHTML = `<div class="page-head"><div><h1>Audio diagnostics</h1><p>Why speech might break up, from live calls and the voice service.</p></div><button class="btn" id="dref">Refresh</button></div><div class="skeleton"></div>`;
+  const d = await api("/studio/diagnostics/audio");
+  const p = d.playout, g = d.gpu, t = d.tts_service;
+  const kv = (k, v) => `<tr><td class="muted">${k}</td><td><b>${v ?? "-"}</b></td></tr>`;
+  const warn = [];
+  if (g.available && g.power_capped) warn.push(`The GPU is power-capped (running at ${Math.round(g.sm_clock_mhz)} of ${Math.round(g.max_sm_clock_mhz)} MHz). On a laptop this usually means it is on battery: plug in AC power - voice synthesis is 2-4x slower when capped, which is the most common cause of speech breaking up.`);
+  if (g.available && g.thermal_throttled) warn.push("The GPU is thermally throttled.");
+  if (t.status === "unreachable") warn.push("The voice service (OmniVoice) is not reachable: " + t.error);
+  if (p.underruns > 0) warn.push(`${p.underruns} playback gap(s) in recent replies (longest ${p.max_gap_ms} ms): the next piece of speech was not ready when the previous one finished.`);
+  $("#app").innerHTML = `<div class="page-head"><div><h1>Audio diagnostics</h1><p>Why speech might break up, from live calls and the voice service.</p></div><button class="btn" id="dref">Refresh</button></div>
+    <div class="stack">${warn.map((w) => `<div class="banner warn">${esc(w)}</div>`).join("") || `<div class="banner ok">No audio problems detected.</div>`}
+    <div class="grid2">
+      <div class="card panel"><h2>Speech continuity</h2><p class="lead small">Since the server started (live agent calls).</p><table class="caps">
+        ${kv("Replies spoken", p.replies)}${kv("Pieces synthesized", p.pieces)}${kv("Cache hits", p.cache_hits)}${kv("Underruns (audible gaps)", p.underruns)}
+        ${kv("Mean / max gap", `${p.mean_gap_ms} / ${p.max_gap_ms} ms`)}${kv("Interruptions (barge-in)", p.interruptions)}${kv("TTS errors", p.tts_errors)}
+        ${kv("Synthesis time p50 / p95", `${p.synth_ms_p50 ?? "-"} / ${p.synth_ms_p95 ?? "-"} ms`)}${kv("Time to first audio (p50)", p.first_audio_ms_p50 == null ? "-" : p.first_audio_ms_p50 + " ms")}
+        ${kv("Avg diffusion steps", p.avg_steps)}</table></div>
+      <div class="card panel"><h2>Voice service &amp; GPU</h2><p class="lead small">OmniVoice runs as its own process.</p><table class="caps">
+        ${kv("Service", t.status)}${kv("Engine", t.engine)}${kv("Model on GPU", t.on_gpu == null ? "-" : t.on_gpu ? "yes" : "parked (wakes on demand)")}
+        ${kv("Queue depth", t.queue_depth)}${kv("Last synthesis", t.last_synth_ms == null ? "-" : Math.round(t.last_synth_ms) + " ms")}
+        ${g.available ? kv("GPU", esc(g.name)) + kv("Clock", `${Math.round(g.sm_clock_mhz)} / ${Math.round(g.max_sm_clock_mhz)} MHz`) + kv("Power", g.power_w + " W") + kv("Utilization", g.utilization_pct + "%") : kv("GPU", "no NVIDIA GPU info")}
+      </table></div></div></div>`;
+  $("#dref").onclick = () => diagnostics().catch(handleError);
+}
+
+/* ---------- editor ---------- */
+const STEPS = [[1, "Basic information"], [2, "Voice studio"], [3, "Personality & instructions"], [4, "Script & knowledge training"], [5, "Call now"]];
+async function editor(id) {
+  $("#app").innerHTML = `<div class="skeleton" style="min-height:400px"></div>`;
+  await loadVoices();
+  if (id === "new") { S.id = null; S.draft = blankAgent(); S.training = []; }
+  else {
+    const a = await api(`/studio/agents/${id}`);
+    S.id = a.id; S.draft = pick(a); S.training = (await api(`/studio/agents/${id}/training`)).items;
+    S.live = a;
+  }
+  S.saved = JSON.stringify(S.draft);
+  S.step = Math.min(S.step || 1, 5);
+  renderEditor();
+}
+const pick = (a) => ({ name: a.name, description: a.description, avatar: a.avatar, use_case_id: a.use_case_id || "", language: a.language, status: a.status,
+  voice: { voice_id: a.voice.voice_id ?? null, speed: a.voice.speed ?? 1.0, style: a.voice.style ?? null, tone: a.voice.tone ?? null },
+  personality: a.personality || {}, system_instructions: a.system_instructions || "", basic: { purpose: a.basic?.purpose || "", objective: a.basic?.objective || "" } });
+
+function completion() {
+  const d = S.draft, p = d.personality;
+  return {
+    1: !!d.name.trim() && !!(d.basic.objective || "").trim(),
+    2: !!d.voice.voice_id || !!(S.voices && S.voices.default_voice_id),
+    3: !!(d.system_instructions.trim() || (p.role || "").trim()),
+    4: S.training.length > 0,
+  };
+}
+function renderEditor() {
+  const d = S.draft, done = completion(), pct = Math.round((Object.values(done).filter(Boolean).length / 4) * 100);
+  $("#app").innerHTML = `
+    <div class="page-head"><div><div class="small muted"><a href="#/">AI Agents</a> / ${S.id ? "Edit" : "New agent"}</div>
+      <h1 id="hTitle">${esc(d.name || "New agent")}</h1></div>
+      <div class="row" id="saveBar"></div></div>
+    <div class="editor">
+      <aside class="rail"><nav class="card steps" aria-label="Sections">${STEPS.map(([n, label]) =>
+        `<button class="step ${done[n] ? "done" : ""}" data-step="${n}" ${S.step === n ? 'aria-current="step"' : ""}><span class="n">${done[n] ? "✓" : n}</span>${label}</button>`).join("")}</nav>
+        <div class="card" style="padding:14px"><div class="row between small"><span class="muted">Setup progress</span><b>${pct}%</b></div><div class="progress" style="margin-top:8px"><i style="width:${pct}%"></i></div></div></aside>
+      <section class="card panel" id="stepPanel"></section>
+      <aside class="side" id="sidePanel"></aside>
+    </div>`;
+  $$(".step").forEach((b) => (b.onclick = () => { S.step = +b.dataset.step; stopPreview(); stopCallPolling(); renderEditor(); window.scrollTo({ top: 0 }); }));
+  renderSaveBar(); renderStep(); renderSide();
+}
+function renderSaveBar() {
+  const a = S.live, missing = a ? a.missing : [];
+  const bar = $("#saveBar");
+  const st = S.draft.status;
+  bar.innerHTML = `${S.id ? statusPill(st) : '<span class="pill">Unsaved</span>'}
+    ${dirty() ? '<span class="pill warn">Unsaved changes</span>' : S.id ? '<span class="pill ok">Saved</span>' : ""}
+    ${S.id ? `<button class="btn" id="sPub" ${dirty() || (st === "draft" && missing.length) ? "disabled" : ""} title="${esc(dirty() ? "Save your changes first" : missing.join(" "))}">${st === "draft" ? "Publish" : "Move to draft"}</button>
+      ${st === "published" ? '<button class="btn" id="sAct" ' + (dirty() ? "disabled" : "") + ">Set active</button>" : ""}` : ""}
+    <button class="btn primary" id="sSave" ${dirty() || !S.id ? "" : "disabled"}>${S.id ? "Save changes" : "Create agent"}</button>`;
+  $("#sSave").onclick = saveAgent;
+  if ($("#sPub")) $("#sPub").onclick = () => setStatus(st === "draft" ? "published" : "draft");
+  if ($("#sAct")) $("#sAct").onclick = () => setStatus("active");
+}
+async function saveAgent() {
+  const d = S.draft;
+  if (!d.name.trim()) { toast("Give the agent a name first.", true); S.step = 1; renderEditor(); return; }
+  const body = { name: d.name.trim(), description: d.description, avatar: d.avatar, use_case_id: d.use_case_id || "", language: d.language,
+    voice: d.voice, personality: d.personality, system_instructions: d.system_instructions, basic: d.basic };
+  try {
+    const a = S.id ? await api(`/studio/agents/${S.id}`, { method: "PUT", body }) : await api("/studio/agents", { method: "POST", body });
+    const wasNew = !S.id;
+    S.id = a.id; S.live = a; S.draft = { ...pick(a), status: a.status }; S.saved = JSON.stringify(S.draft);
+    toast(wasNew ? "Agent created" : "Saved");
+    if (wasNew) { history.replaceState(null, "", `#/agent/${a.id}`); }
+    renderEditor();
+  } catch (e) { toast(e.message, true, 7000); }
+}
+async function setStatus(status) {
+  try { const a = await api(`/studio/agents/${S.id}/status`, { method: "POST", body: { status } }); S.live = a; S.draft.status = a.status; S.saved = JSON.stringify(S.draft); toast(`Agent is now ${a.status}`); renderEditor(); }
+  catch (e) { toast(e.message, true, 7000); }
+}
+function bind(el, get, set, after) {
+  el.addEventListener("input", () => { set(el.type === "range" ? +el.value : el.value); after && after(); renderSaveBar(); });
+}
+function renderStep() {
+  ({ 1: stepBasic, 2: stepVoice, 3: stepPersonality, 4: stepTraining, 5: stepCall })[S.step]();
+}
+
+/* step 1 */
+function stepBasic() {
+  const d = S.draft;
+  $("#stepPanel").innerHTML = `<h2>Basic information</h2><p class="lead">Who the agent is and what it is for.</p>
+    <div class="stack">
+      <div class="row" style="gap:16px;align-items:flex-start"><div id="avPrev">${avatarHtml(d, "lg")}</div>
+        <div style="flex:1"><span class="small muted" style="font-weight:500">Avatar</span><div class="avatar-picker" style="margin-top:6px">
+          ${EMOJI.map((e) => `<button type="button" aria-pressed="${d.avatar === e}" data-emoji="${e}" aria-label="Avatar ${e}">${e}</button>`).join("")}
+          <label class="btn sm" style="height:36px">Upload<input type="file" id="avFile" accept="image/*" hidden></label></div></div></div>
+      <label class="f"><span>Agent name *</span><input type="text" id="fName" maxlength="80" placeholder="Customer Support Assistant" value="${esc(d.name)}"></label>
+      <label class="f"><span>Description</span><textarea id="fDesc" maxlength="500" placeholder="AI agent responsible for answering customer queries and resolving common support issues.">${esc(d.description)}</textarea></label>
+      <div class="grid2">
+        <label class="f"><span>Associated use case</span><select id="fUse"><option value="">None</option>
+          ${S.meta.use_cases.map((u) => `<option value="${esc(u.id)}" ${d.use_case_id === u.id ? "selected" : ""}>${esc(u.name)}</option>`).join("")}</select></label>
+        <label class="f"><span>Default language</span><select id="fLang">${S.meta.languages.map((l) => `<option value="${l}" ${d.language === l ? "selected" : ""}>${LANG[l]}</option>`).join("")}</select></label>
+      </div>
+      <label class="f"><span>Agent purpose</span><input type="text" id="fPurpose" maxlength="500" placeholder="Answer customer queries and resolve common support issues" value="${esc(d.basic.purpose)}"></label>
+      <label class="f"><span>Conversation objective *</span><textarea id="fObj" maxlength="800" placeholder="Understand the customer's problem and resolve it, or hand over to a human with the details noted.">${esc(d.basic.objective)}</textarea>
+        <p class="hint">What a successful call looks like. Needed to publish.</p></label>
+    </div>`;
+  bind($("#fName"), 0, (v) => (d.name = v), () => { $("#hTitle").textContent = d.name || "New agent"; $("#avPrev").innerHTML = avatarHtml(d, "lg"); });
+  bind($("#fDesc"), 0, (v) => (d.description = v));
+  bind($("#fPurpose"), 0, (v) => (d.basic.purpose = v));
+  bind($("#fObj"), 0, (v) => (d.basic.objective = v));
+  $("#fUse").onchange = (e) => { d.use_case_id = e.target.value; renderSaveBar(); };
+  $("#fLang").onchange = (e) => { d.language = e.target.value; renderSaveBar(); };
+  $$("[data-emoji]").forEach((b) => (b.onclick = () => { d.avatar = b.dataset.emoji; renderSaveBar(); stepBasic(); }));
+  $("#avFile").onchange = async (e) => {
+    const f = e.target.files[0]; if (!f) return;
+    try { d.avatar = await shrinkImage(f, 96); renderSaveBar(); stepBasic(); } catch (err) { toast(err.message, true); }
+  };
+}
+function shrinkImage(file, size) {
+  return new Promise((resolve, reject) => {
+    const img = new Image(), url = URL.createObjectURL(file);
+    img.onload = () => {
+      const c = document.createElement("canvas"); c.width = c.height = size; const ctx = c.getContext("2d");
+      const s = Math.min(img.width, img.height); ctx.drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, size, size);
+      URL.revokeObjectURL(url); resolve(c.toDataURL("image/jpeg", 0.85));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("That file is not a readable image.")); };
+    img.src = url;
+  });
+}
+
+/* step 2: voice studio */
+const cap = (key) => S.meta.capabilities.find((c) => c.key === key);
+const CAP_BADGE = { supported: ["ok", "Supported"], creation_only: ["accent", "Set when creating a voice"], via_instructions: ["warn", "Via instructions"], unsupported: ["bad", "Not supported"] };
+function stepVoice() {
+  const d = S.draft, v = S.voices;
+  // OmniVoice is zero-shot multilingual: a voice cloned from a Gujarati sample can speak Hindi text.
+  // So every voice is offered; the ones recorded in the agent's language are listed first and tagged.
+  const voices = [...(v?.voices || [])].sort((a, b) => (b.language === d.language) - (a.language === d.language));
+  const speedOpts = d.voice.speed;
+  $("#stepPanel").innerHTML = `<h2>Voice studio</h2><p class="lead">Choose how the agent sounds. Each control is labelled with what OmniVoice actually does with it.</p>
+    <div class="stack">
+      ${S.voicesErr ? `<div class="banner bad">${esc(S.voicesErr)} <button class="btn sm" id="vRetry" style="margin-left:8px">Retry</button></div>` : ""}
+      <div><div class="row between"><h3 style="font-size:14px">Voice <span class="pill ok" style="margin-left:6px">Supported</span></h3><span class="small muted">Any voice can speak any language; the tag shows the language of its sample</span></div>
+        <div class="voices" style="margin-top:10px" id="voiceList">
+          ${voices.map((x) => `<button type="button" class="voice" data-vid="${esc(x.id)}" aria-pressed="${d.voice.voice_id === x.id}">
+            <b>${esc(x.name)}</b><span class="small muted">${esc(x.description || x.instruct || x.kind)}</span>
+            <span class="row small"><span class="pill">${esc(x.kind)}</span><span class="pill ${x.language === d.language ? "accent" : ""}">${esc(LANG[x.language] || x.language)} sample</span>${x.is_default ? '<span class="pill ok">library default</span>' : ""}</span></button>`).join("")
+            || `<div class="empty" style="grid-column:1/-1">No voices yet. Create one below, or clone one in <a href="/voice-studio" target="_blank" rel="noopener">Voice Studio</a>.</div>`}
+        </div>
+        <p class="hint">${d.voice.voice_id ? "" : "No voice selected: the agent uses the library default voice."}</p></div>
+
+      <details class="create" id="createVoice"><summary>Create a new voice from attributes</summary>
+        <p class="hint">OmniVoice designs a voice once from these attributes and then clones it, so it sounds identical on every call. Gender, age, pitch and accent are fixed at creation - to change them, create another voice.</p>
+        <div class="grid2" style="margin-top:10px">
+          <label class="f"><span>Voice name</span><input type="text" id="cvName" maxlength="80" placeholder="Calm female - support"></label>
+          <label class="f"><span>Gender</span><select id="cvGender"><option value="">any</option>${S.meta.design_options.gender.map((g) => `<option>${g}</option>`).join("")}</select></label>
+          <label class="f"><span>Age</span><select id="cvAge"><option value="">any</option>${S.meta.design_options.age.map((g) => `<option>${g}</option>`).join("")}</select></label>
+          <div class="range"><div class="top"><span class="small muted" style="font-weight:500">Pitch</span><span class="val" id="cvPitchV">moderate</span></div>
+            <input type="range" id="cvPitch" min="0" max="4" step="1" value="2" aria-label="Pitch"><div class="row between small faint"><span>Low</span><span>High</span></div></div>
+          <label class="f ${d.language === "en" ? "" : "disabled-control"}"><span>Accent ${d.language === "en" ? "" : "(English only)"}</span><select id="cvAccent"><option value="">none</option>${S.meta.design_options.accent.map((g) => `<option>${g}</option>`).join("")}</select></label>
+          <label class="f"><span>Use pitch?</span><select id="cvUsePitch"><option value="0">Leave pitch unspecified</option><option value="1">Apply the pitch above</option></select></label>
+        </div>
+        <div class="row" style="margin-top:12px"><button class="btn primary" type="button" id="cvGo">Create voice</button><span class="small muted" id="cvMsg"></span></div>
+      </details>
+
+      <div class="grid2">
+        <div class="range"><div class="top"><span style="font-weight:500">Speaking speed <span class="pill ok">Supported</span></span><span class="val" id="spV">${speedOpts.toFixed(2)}×</span></div>
+          <input type="range" id="fSpeed" min="0.5" max="2" step="0.05" value="${speedOpts}" aria-label="Speaking speed"><div class="row between small faint"><span>Slow</span><span>Fast</span></div></div>
+        <div></div>
+        <label class="f"><span>Speaking style <span class="pill warn">Via instructions</span></span><select id="fStyle"><option value="">Not set</option>${S.meta.styles.map((s) => `<option value="${s}" ${d.voice.style === s ? "selected" : ""}>${s[0].toUpperCase() + s.slice(1)}</option>`).join("")}</select></label>
+        <label class="f"><span>Emotional tone <span class="pill warn">Via instructions</span></span><select id="fTone"><option value="">Not set</option>${S.meta.tones.map((s) => `<option value="${s}" ${d.voice.tone === s ? "selected" : ""}>${s[0].toUpperCase() + s.slice(1)}</option>`).join("")}</select></label>
+      </div>
+
+      <div><h3 style="font-size:14px;margin-bottom:8px">What each voice control does</h3>
+        <table class="caps">${S.meta.capabilities.map((c) => { const [cls, label] = CAP_BADGE[c.status]; return `<tr><td>${esc(c.label)}</td><td><span class="pill ${cls}">${label}</span><div class="small muted" style="margin-top:3px">${esc(c.detail)}</div></td></tr>`; }).join("")}</table></div>
+    </div>`;
+  $$("[data-vid]").forEach((b) => (b.onclick = () => { d.voice.voice_id = d.voice.voice_id === b.dataset.vid ? null : b.dataset.vid; renderSaveBar(); stepVoice(); renderSide(); }));
+  $("#fSpeed").oninput = (e) => { d.voice.speed = +e.target.value; $("#spV").textContent = d.voice.speed.toFixed(2) + "×"; renderSaveBar(); renderSide(); };
+  $("#fStyle").onchange = (e) => { d.voice.style = e.target.value || null; renderSaveBar(); };
+  $("#fTone").onchange = (e) => { d.voice.tone = e.target.value || null; renderSaveBar(); };
+  if ($("#vRetry")) $("#vRetry").onclick = async () => { await loadVoices(true); stepVoice(); renderSide(); };
+  const PITCH = S.meta.design_options.pitch;
+  $("#cvPitch").oninput = (e) => ($("#cvPitchV").textContent = PITCH[+e.target.value].replace(" pitch", ""));
+  $("#cvGo").onclick = async () => {
+    const name = $("#cvName").value.trim(); if (!name) { toast("Name the new voice.", true); return; }
+    const parts = [$("#cvGender").value, $("#cvAge").value, $("#cvUsePitch").value === "1" ? PITCH[+$("#cvPitch").value] : "", d.language === "en" ? $("#cvAccent").value : ""].filter(Boolean);
+    if (!parts.length) { toast("Choose at least one attribute.", true); return; }
+    $("#cvGo").disabled = true; $("#cvMsg").textContent = "Designing the voice - this takes up to a minute on first use…";
+    try {
+      const nv = await api("/voices/design", { method: "POST", body: { name, language: d.language, instruct: parts.join(", "), description: parts.join(", ") } });
+      await loadVoices(true); d.voice.voice_id = nv.id; toast("Voice created and selected"); renderSaveBar(); stepVoice(); renderSide();
+    } catch (e) { $("#cvMsg").textContent = ""; $("#cvGo").disabled = false; toast(e.message, true, 8000); }
+  };
+}
+
+/* step 3 */
+function counter(el, max) { const c = el.parentElement.querySelector(".counter"); const f = () => { c.textContent = `${el.value.length.toLocaleString()} / ${max.toLocaleString()}`; c.classList.toggle("over", el.value.length > max); }; el.addEventListener("input", f); f(); }
+function stepPersonality() {
+  const d = S.draft, p = d.personality;
+  const placeholders = { role: "Customer support assistant for ABC Services.", personality: "Patient, warm, clear.", communication_style: "Short spoken sentences; confirm before answering.",
+    objective: "Resolve the customer's question in this call.", rules: "Never promise refunds or timelines you were not given.", guidelines: "Ask one question at a time.",
+    fallback: "Sorry, I did not catch that. Could you repeat?", escalation: "If the caller is upset or asks for a person, offer a human agent.",
+    unknown_questions: "Say you do not have that information and offer a follow-up.", ending: "Ask if there is anything else, thank them, and end politely.",
+    greeting: "Hello! Thank you for calling ABC Services. My name is Alex. How can I help you today?" };
+  const fields = [...S.meta.personality_fields, { key: "greeting", label: "Opening greeting (first thing the agent says)" }];
+  $("#stepPanel").innerHTML = `<h2>Personality &amp; instructions</h2><p class="lead">Saved with the agent and put into the prompt on every turn.</p>
+    <div class="stack">
+      <div class="row"><label class="f" style="flex:1;min-width:220px"><span>Start from a template</span><select id="tpl"><option value="">Choose a starter template…</option>
+        ${S.meta.instruction_templates.map((t) => `<option value="${t.id}">${esc(t.name)}</option>`).join("")}</select></label>
+        <button class="btn" type="button" id="viewPrompt" style="align-self:flex-end" ${S.id ? "" : "disabled"} title="${S.id ? "" : "Save the agent first"}">View assembled prompt</button></div>
+      <label class="f"><span>System instructions</span><textarea id="fSys" style="min-height:130px" maxlength="12000" placeholder="You are a friendly and professional customer support assistant…">${esc(d.system_instructions)}</textarea><div class="counter"></div></label>
+      <h3 style="font-size:14px">Structured guidance</h3>
+      <div class="stack">${fields.map((f) => `<label class="f"><span>${esc(f.label)}</span><textarea data-pf="${f.key}" maxlength="4000" placeholder="${esc(placeholders[f.key] || "")}">${esc(p[f.key] || "")}</textarea><div class="counter"></div></label>`).join("")}</div>
+    </div>`;
+  const sys = $("#fSys"); bind(sys, 0, (v) => (d.system_instructions = v)); counter(sys, 12000);
+  $$("[data-pf]").forEach((ta) => { bind(ta, 0, (v) => { if (v.trim()) p[ta.dataset.pf] = v; else delete p[ta.dataset.pf]; }); counter(ta, 4000); });
+  $("#tpl").onchange = async (e) => {
+    const t = S.meta.instruction_templates.find((x) => x.id === e.target.value); if (!t) return;
+    const has = d.system_instructions.trim() || Object.values(p).some((x) => (x || "").trim());
+    if (has && !(await confirmDialog("Replace current text?", `Loading "${t.name}" overwrites your instructions and guidance fields.`, "Replace"))) { e.target.value = ""; return; }
+    d.system_instructions = t.system_instructions; d.personality = { ...(d.personality.greeting ? { greeting: d.personality.greeting } : {}), ...t.personality };
+    renderSaveBar(); stepPersonality();
+  };
+  $("#viewPrompt").onclick = async () => {
+    try {
+      const r = await api(`/studio/agents/${S.id}/prompt`);
+      modal(`<div class="row between"><h3>Assembled system prompt</h3><button class="btn sm" data-close>Close</button></div>
+        <p class="muted small">This is the saved configuration as the model receives it. ${dirty() ? "<b>You have unsaved changes that are not included.</b>" : ""}</p>
+        <div class="row" style="margin-bottom:8px">${r.sections_loaded.map((s) => `<span class="pill accent">${esc(s)}</span>`).join("") || '<span class="muted">No sections filled in yet.</span>'}</div><pre class="prompt">${esc(r.prompt)}</pre>`);
+    } catch (e) { toast(e.message, true); }
+  };
+}
+
+/* step 4: training */
+async function reloadTraining() { S.training = (await api(`/studio/agents/${S.id}/training`)).items; }
+function stepTraining() {
+  const panel = $("#stepPanel");
+  if (!S.id) { panel.innerHTML = `<h2>Script &amp; knowledge training</h2><p class="lead">Train the agent on your scripts, Q&amp;A, example conversations and documents.</p><div class="banner warn">Save the agent first - training material is stored against the agent.</div>`; return; }
+  const n = (t) => S.training.filter((x) => x.training_type === t).length;
+  const tabs = [["script", "Custom script"], ["qa", "Q&A"], ["scenario", "Demo conversations"], ["document", "Knowledge base"]];
+  panel.innerHTML = `<h2>Script &amp; knowledge training</h2><p class="lead">The agent retrieves the most relevant material for each caller question and uses it in its answer. This is retrieval - it does not fine-tune the model.</p>
+    <div class="tabs" role="tablist">${tabs.map(([k, l]) => `<button class="tab" role="tab" data-tab="${k}" aria-selected="${S.tab === k}">${l}<span class="pill">${n(k)}</span></button>`).join("")}</div><div id="tabBody"></div>`;
+  $$("[data-tab]").forEach((b) => (b.onclick = () => { S.tab = b.dataset.tab; stepTraining(); }));
+  ({ script: tabScript, qa: tabQa, scenario: tabScenario, document: tabDocs })[S.tab]();
+}
+async function trainCall(fn) { try { await fn(); await reloadTraining(); renderEditorProgress(); stepTraining(); } catch (e) { toast(e.message, true, 7000); } }
+function renderEditorProgress() { const done = completion(), pct = Math.round((Object.values(done).filter(Boolean).length / 4) * 100); const bar = $(".progress > i"); if (bar) { bar.style.width = pct + "%"; bar.parentElement.previousElementSibling.lastElementChild.textContent = pct + "%"; } $$(".step").forEach((b) => { const k = +b.dataset.step; b.classList.toggle("done", !!done[k]); $(".n", b).textContent = done[k] ? "✓" : k; }); }
+
+function tabScript() {
+  const items = S.training.filter((x) => x.training_type === "script"), kinds = S.meta.script_kinds;
+  $("#tabBody").innerHTML = `<div class="stack">
+    <div class="row between"><p class="muted" style="margin:0">Write what the agent should say, as <span class="mono">Agent:</span> / <span class="mono">Customer:</span> lines. Add one block per part of the call.</p>
+      <div class="row"><select id="newKind" style="width:auto">${kinds.map((k) => `<option value="${k.key}">${esc(k.label)}</option>`).join("")}</select><button class="btn primary" id="addScript">Add script</button></div></div>
+    ${items.map((it) => `<div class="item" data-id="${it.id}"><div class="row between"><select data-f="kind" style="width:auto">${kinds.map((k) => `<option value="${k.key}" ${(it.metadata.kind || "full") === k.key ? "selected" : ""}>${esc(k.label)}</option>`).join("")}</select>
+        <input type="text" data-f="title" style="flex:1;min-width:160px" placeholder="Title" value="${esc(it.title)}"></div>
+        <textarea class="mono" data-f="content" style="min-height:130px">${esc(it.content)}</textarea>
+        <div class="row between"><span class="small faint">${it.content.length.toLocaleString()} characters</span><div class="row"><button class="btn sm danger" data-act="del">Delete</button><button class="btn sm primary" data-act="save">Save</button></div></div></div>`).join("")
+      || `<div class="empty"><h3>No scripts yet</h3><p>Add an opening script, objection handling, a closing…</p></div>`}</div>`;
+  $("#addScript").onclick = () => trainCall(() => api(`/studio/agents/${S.id}/training`, { method: "POST", body: {
+    training_type: "script", title: kinds.find((k) => k.key === $("#newKind").value).label, content: S.meta.script_example, metadata: { kind: $("#newKind").value } } }));
+  $$("#tabBody .item").forEach((el) => {
+    const id = el.dataset.id, val = (f) => $(`[data-f=${f}]`, el).value;
+    $("[data-act=save]", el).onclick = () => trainCall(async () => { await api(`/studio/training/${id}`, { method: "PUT", body: { title: val("title"), content: val("content"), metadata: { kind: val("kind") } } }); toast("Script saved"); });
+    $("[data-act=del]", el).onclick = async () => { if (await confirmDialog("Delete this script?", "This cannot be undone.")) trainCall(() => api(`/studio/training/${id}`, { method: "DELETE" })); };
+  });
+}
+
+function tabQa() {
+  const items = S.training.filter((x) => x.training_type === "qa");
+  const cats = [...new Set(items.map((i) => i.metadata.category).filter(Boolean))].sort();
+  $("#tabBody").innerHTML = `<div class="stack">
+    <div class="item"><div class="grid2"><label class="f"><span>Question</span><input type="text" id="qQ" placeholder="What are your working hours?"></label>
+      <label class="f"><span>Answer</span><input type="text" id="qA" placeholder="We are available Monday to Saturday, 9 AM to 6 PM."></label></div>
+      <div class="row between"><label class="f" style="min-width:200px"><span>Category (optional)</span><input type="text" id="qC" list="qcats" placeholder="hours"><datalist id="qcats">${cats.map((c) => `<option value="${esc(c)}">`).join("")}</datalist></label>
+        <button class="btn primary" id="qAdd">Add Q&amp;A pair</button></div></div>
+    <div class="row between"><input type="search" id="qSearch" placeholder="Search questions and answers…" style="max-width:320px">
+      <div class="row"><select id="qCat" style="width:auto"><option value="">All categories</option>${cats.map((c) => `<option>${esc(c)}</option>`).join("")}</select>
+        <label class="btn sm">Import CSV/JSON<input type="file" id="qFile" accept=".csv,.json" hidden></label>
+        <select id="qMode" style="width:auto" title="Import mode"><option value="append">Add to existing</option><option value="replace">Replace all</option></select>
+        <a class="btn sm" id="qExpCsv" href="#">Export CSV</a><a class="btn sm" id="qExpJson" href="#">Export JSON</a></div></div>
+    <div id="qList"></div></div>`;
+  const draw = () => {
+    const q = $("#qSearch").value.trim().toLowerCase(), c = $("#qCat").value;
+    const rows = items.filter((i) => (!c || i.metadata.category === c) && (!q || (i.title + " " + i.content).toLowerCase().includes(q)));
+    $("#qList").innerHTML = rows.length ? `<table class="qa"><thead><tr><th style="width:36%">Question</th><th>Answer</th><th style="width:110px">Category</th><th style="width:130px"></th></tr></thead><tbody>${rows.map((i) => `
+      <tr data-id="${i.id}"><td><textarea data-f="q" style="min-height:48px">${esc(i.title)}</textarea></td><td><textarea data-f="a" style="min-height:48px">${esc(i.content)}</textarea></td>
+        <td><input type="text" data-f="c" value="${esc(i.metadata.category || "")}"></td>
+        <td><div class="row"><button class="btn sm" data-act="save">Save</button><button class="btn sm danger" data-act="del">✕</button></div></td></tr>`).join("")}</tbody></table>`
+      : `<div class="empty"><h3>${items.length ? "No matches" : "No Q&A pairs yet"}</h3><p>${items.length ? "Try another search." : "Add pairs above, or import a CSV / JSON file."}</p></div>`;
+    $$("#qList tr[data-id]").forEach((tr) => {
+      const id = tr.dataset.id, v = (f) => $(`[data-f=${f}]`, tr).value;
+      $("[data-act=save]", tr).onclick = () => trainCall(async () => { await api(`/studio/training/${id}`, { method: "PUT", body: { title: v("q"), content: v("a"), metadata: { category: v("c").trim() } } }); toast("Saved"); });
+      $("[data-act=del]", tr).onclick = () => trainCall(() => api(`/studio/training/${id}`, { method: "DELETE" }));
+    });
+  };
+  draw(); $("#qSearch").oninput = debounce(draw, 120); $("#qCat").onchange = draw;
+  $("#qAdd").onclick = () => trainCall(() => api(`/studio/agents/${S.id}/training`, { method: "POST", body: { training_type: "qa", title: $("#qQ").value, content: $("#qA").value, metadata: { category: $("#qC").value.trim() } } }));
+  $("#qFile").onchange = (e) => {
+    const f = e.target.files[0]; if (!f) return; const fd = new FormData(); fd.append("file", f); fd.append("mode", $("#qMode").value);
+    trainCall(async () => { const r = await api(`/studio/agents/${S.id}/training/qa/import`, { method: "POST", body: fd }); toast(`Imported ${r.imported} pairs`); });
+  };
+  const exp = (fmt) => async (ev) => { ev.preventDefault(); try { const r = await api(`/studio/agents/${S.id}/training/export?format=${fmt}`); const b = await r.blob(); const a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = `${S.draft.name || "agent"}_${fmt === "csv" ? "qa.csv" : "training.json"}`; a.click(); URL.revokeObjectURL(a.href); } catch (e) { toast(e.message, true); } };
+  $("#qExpCsv").onclick = exp("csv"); $("#qExpJson").onclick = exp("json");
+}
+
+function tabScenario() {
+  const items = S.training.filter((x) => x.training_type === "scenario");
+  $("#tabBody").innerHTML = `<div class="stack"><div class="row between"><p class="muted" style="margin:0">Example conversations show the agent how a typical call should go. Retrieved when a caller's words resemble the scenario.</p><button class="btn primary" id="addScn">Add scenario</button></div>
+    <div id="scnList" class="stack">${items.map(scenarioCard).join("") || `<div class="empty"><h3>No demo conversations</h3><p>Add a scenario like "Customer wants to book an appointment".</p></div>`}</div></div>`;
+  $("#addScn").onclick = () => trainCall(() => api(`/studio/agents/${S.id}/training`, { method: "POST", body: { training_type: "scenario", title: "New scenario", metadata: { turns: [
+    { speaker: "customer", text: "I want to book an appointment." }, { speaker: "ai", text: "Sure! May I know which date works best for you?" }] } } }));
+  $$("#scnList .item").forEach((el) => {
+    const id = el.dataset.id, it = items.find((x) => x.id === id), turns = (it.metadata.turns || parseTurns(it.content)).map((t) => ({ ...t }));
+    const redraw = () => { $(".turns", el).innerHTML = turnsHtml(turns); bindTurns(); };
+    const bindTurns = () => $$(".turn", el).forEach((row, i) => {
+      $("[data-f=speaker]", row).onclick = () => { turns[i].speaker = turns[i].speaker === "ai" ? "customer" : "ai"; redraw(); };
+      $("[data-f=text]", row).oninput = (e) => (turns[i].text = e.target.value);
+      $("[data-act=up]", row).onclick = () => { if (i) { [turns[i - 1], turns[i]] = [turns[i], turns[i - 1]]; redraw(); } };
+      $("[data-act=rm]", row).onclick = () => { turns.splice(i, 1); redraw(); };
+    });
+    redraw();
+    $("[data-act=addturn]", el).onclick = () => { turns.push({ speaker: turns.length && turns[turns.length - 1].speaker === "customer" ? "ai" : "customer", text: "" }); redraw(); };
+    $("[data-act=save]", el).onclick = () => trainCall(async () => { await api(`/studio/training/${id}`, { method: "PUT", body: { title: $("[data-f=title]", el).value, metadata: { turns } } }); toast("Scenario saved"); });
+    $("[data-act=del]", el).onclick = async () => { if (await confirmDialog("Delete this scenario?", "This cannot be undone.")) trainCall(() => api(`/studio/training/${id}`, { method: "DELETE" })); };
+  });
+}
+const parseTurns = (c) => c.split("\n").filter(Boolean).map((l) => ({ speaker: l.startsWith("Customer:") ? "customer" : "ai", text: l.replace(/^(Customer|AI):\s*/, "") }));
+const turnsHtml = (turns) => turns.map((t) => `<div class="turn"><button type="button" class="btn sm who ${t.speaker === "ai" ? "primary" : ""}" data-f="speaker" title="Click to switch speaker">${t.speaker === "ai" ? "AI" : "Customer"}</button>
+  <input type="text" data-f="text" value="${esc(t.text)}" placeholder="${t.speaker === "ai" ? "What the agent says" : "What the customer says"}"><div class="row"><button class="btn sm ghost" data-act="up" title="Move up">↑</button><button class="btn sm ghost" data-act="rm" title="Remove">✕</button></div></div>`).join("");
+const scenarioCard = (it) => `<div class="item" data-id="${it.id}"><label class="f"><span>Scenario</span><input type="text" data-f="title" value="${esc(it.title)}" placeholder="Customer wants to book an appointment"></label>
+  <div class="stack turns" style="gap:8px"></div><div class="row between"><button class="btn sm" data-act="addturn">+ Add turn</button><div class="row"><button class="btn sm danger" data-act="del">Delete</button><button class="btn sm primary" data-act="save">Save</button></div></div></div>`;
+
+function tabDocs() {
+  const docs = S.training.filter((x) => x.training_type === "document");
+  $("#tabBody").innerHTML = `<div class="stack">
+    <div class="grid2"><div class="item"><b>Upload a document</b><span class="small muted">${S.meta.document_types.join(", ")} · up to 8 MB</span><label class="btn" style="width:fit-content">Choose file<input type="file" id="dFile" accept="${S.meta.document_types.join(",")}" hidden></label></div>
+      <div class="item"><b>Add a website</b><span class="small muted">A public web page; its text is read once and stored.</span><div class="row"><input type="url" id="dUrl" placeholder="https://example.com/faq" style="flex:1"><button class="btn primary" id="dAddUrl">Add</button></div></div></div>
+    <div class="stack">${docs.map((d) => `<div class="item" data-id="${d.id}"><div class="row between"><div style="min-width:0"><b class="trunc">${esc(d.title)}</b><div class="small muted">${d.metadata.source === "url" ? "Web page" : "Uploaded file"} · ${(d.metadata.chars || 0).toLocaleString()} characters · ${d.metadata.chunks || 0} searchable parts</div></div><button class="btn sm danger" data-act="del">Delete</button></div></div>`).join("") || `<div class="empty"><h3>No documents</h3><p>Upload a PDF, DOCX, CSV or text file, or add a web page.</p></div>`}</div>
+    <div class="card" style="padding:14px;background:var(--surface-2);box-shadow:none"><b>Test what the agent would know</b><p class="small muted" style="margin:2px 0 8px">Type a customer question. This shows the training material the agent would be given for it - across Q&amp;A, scripts, scenarios and documents.</p>
+      <div class="row"><input type="text" id="tq" placeholder="What are your working hours?" style="flex:1"><button class="btn" id="tGo">Search</button></div><div id="tOut"></div></div></div>`;
+  $("#dFile").onchange = (e) => { const f = e.target.files[0]; if (!f) return; const fd = new FormData(); fd.append("file", f);
+    trainCall(async () => { await api(`/studio/agents/${S.id}/knowledge/document`, { method: "POST", body: fd }); toast("Document added"); }); };
+  $("#dAddUrl").onclick = () => trainCall(async () => { await api(`/studio/agents/${S.id}/knowledge/url`, { method: "POST", body: { url: $("#dUrl").value.trim() } }); toast("Page added"); });
+  $$("#tabBody [data-id]").forEach((el) => ($("[data-act=del]", el).onclick = async () => { if (await confirmDialog("Delete this document?", "Its text is removed from the agent's knowledge.")) trainCall(() => api(`/studio/training/${el.dataset.id}`, { method: "DELETE" })); }));
+  const go = async () => {
+    const q = $("#tq").value.trim(); if (!q) return;
+    try { const r = await api(`/studio/agents/${S.id}/knowledge/search`, { method: "POST", body: { query: q } });
+      $("#tOut").innerHTML = r.results.length ? r.results.map((h) => `<div class="hit"><div class="small muted">${esc(h.source)} · ${esc(h.label)} · relevance ${h.score}</div><div style="white-space:pre-wrap">${esc(h.text)}</div></div>`).join("")
+        : `<div class="hit"><span class="muted">Nothing relevant. The agent would answer from its instructions and follow its "unknown questions" guidance.</span></div>`;
+    } catch (e) { toast(e.message, true); }
+  };
+  $("#tGo").onclick = go; $("#tq").onkeydown = (e) => e.key === "Enter" && go();
+}
+
+/* step 5: call now */
+let callTimer = null;
+function stopCallPolling() { if (callTimer) { clearInterval(callTimer); callTimer = null; } }
+const CALL_LABEL = { connecting: "Ringing…", in_progress: "Call in progress", completed: "Call ended", failed: "Call did not connect" };
+async function stepCall() {
+  const panel = $("#stepPanel");
+  panel.innerHTML = `<h2>Call now</h2><p class="lead">Phone the configured number and talk to this agent.</p><div class="skeleton" style="min-height:160px"></div>`;
+  let cfg;
+  try { cfg = await api("/studio/call-config"); } catch (e) { panel.innerHTML += `<div class="banner bad">${esc(e.message)}</div>`; return; }
+  if (S.step !== 5) return;
+  const d = S.draft, saved = !!S.id, clean = saved && !dirty(), ready = !!(S.live && S.live.ready_to_publish);
+  const checks = [
+    [saved, "Agent is saved"],
+    [clean, "No unsaved changes (the call uses the saved agent)"],
+    [ready, "Instructions and conversation objective are filled in"],
+    [cfg.number_set, "STUDIO_CALL_NUMBER is set in .env"],
+    [cfg.twilio_ready, "Twilio is configured"],
+    [cfg.public_url_set, "Public URL (NGROK_URL) is set"],
+  ];
+  const ok = checks.every((c) => c[0]);
+  const voices = S.voices?.voices || [], vid = d.voice.voice_id || S.voices?.default_voice_id;
+  const vname = (voices.find((v) => v.id === vid) || {}).name || "Library default";
+  panel.innerHTML = `<h2>Call now</h2><p class="lead">Phone the configured number and talk to this agent, live.</p>
+    <div class="stack">
+      <div class="row" style="gap:14px">${avatarHtml(d)}<div><b>${esc(d.name || "Unnamed agent")}</b><div class="small muted">${esc(LANG[d.language])} · voice ${esc(vname)} · ${d.voice.speed.toFixed(2)}× · uses the saved configuration and training</div></div></div>
+      <div><div class="small muted" style="font-weight:500;margin-bottom:4px">Number that will be called</div>
+        ${cfg.number_set ? `<b style="font-size:16px;font-variant-numeric:tabular-nums">${esc(cfg.number_masked)}</b> <span class="small muted">· set by STUDIO_CALL_NUMBER in .env</span>`
+          : `<span class="pill bad">Not set</span> <span class="small muted">add STUDIO_CALL_NUMBER=+919876543210 to .env</span>`}</div>
+      <ul class="checks">${checks.map(([good, t]) => `<li><span class="${good ? "ok" : "no"}">${good ? "✓" : "✕"}</span><span class="${good ? "" : "muted"}">${esc(t)}</span></li>`).join("")}</ul>
+      ${cfg.problems.map((p) => `<div class="banner warn">${esc(p)}</div>`).join("")}
+      <div class="row"><button class="btn primary" id="callBtn" style="height:40px;padding:0 22px" ${ok ? "" : "disabled"}>📞 Call now</button>
+        ${!ok && saved && !clean ? '<span class="small muted">Save your changes first.</span>' : ""}</div>
+      <div id="callBox"></div>
+    </div>`;
+  $("#callBtn").onclick = async () => {
+    if (!(await confirmDialog(`Call ${cfg.number_masked} now?`, `This places a real phone call to that number and connects it to "${d.name}". Calls are billed by Twilio.`, "Call now"))) return;
+    $("#callBtn").disabled = true;
+    try {
+      const r = await api(`/studio/agents/${S.id}/call`, { method: "POST" });
+      S.call = { id: r.call_id, to: r.to }; toast("Calling…"); renderCall(null);
+      startCallPolling();
+    } catch (e) { toast(e.message, true, 9000); $("#callBtn").disabled = false; }
+  };
+  if (S.call) { renderCall(null); if (!S.call.ended) startCallPolling(); }
+}
+function startCallPolling() {
+  stopCallPolling();
+  const tick = async () => {
+    if (!S.call || S.step !== 5) return stopCallPolling();
+    try {
+      const c = await api(`/studio/calls/${S.call.id}`);
+      renderCall(c);
+      if (c.status === "completed" || c.status === "failed") { S.call.ended = true; stopCallPolling(); if ($("#callBtn")) $("#callBtn").disabled = false; }
+    } catch (e) { stopCallPolling(); toast(e.message, true); }
+  };
+  tick(); callTimer = setInterval(tick, 2000);
+}
+function renderCall(c) {
+  const box = $("#callBox"); if (!box) return;
+  const st = c ? c.status : "connecting", live = st === "connecting" || st === "in_progress";
+  const msgs = c ? c.messages : [];
+  box.innerHTML = `<div class="callbox"><div class="row between"><div class="callstate"><span class="dot ${live ? "live" : st === "failed" ? "bad" : "ok"}"></span>${esc(CALL_LABEL[st] || st)}${c && c.duration_secs ? `<span class="muted small" style="font-weight:400">· ${fmtDur(c.duration_secs)}</span>` : ""}</div>
+      ${live ? '<button class="btn sm danger" id="hangBtn">Hang up</button>' : ""}</div>
+    ${c && c.error ? `<div class="banner bad">${esc(c.error)}</div>` : ""}
+    <div class="transcript" aria-live="polite">${msgs.map((m) => `<div class="line ${m.speaker === "agent" ? "agent" : ""}"><b>${m.speaker === "agent" ? "Agent" : "Customer"}</b><span>${esc(m.message)}</span></div>`).join("")
+      || `<span class="muted small">${live ? "The conversation will appear here as it happens." : "No conversation was recorded."}</span>`}</div></div>`;
+  if ($("#hangBtn")) $("#hangBtn").onclick = async () => { try { await api(`/studio/calls/${S.call.id}/end`, { method: "POST" }); toast("Hanging up…"); } catch (e) { toast(e.message, true); } };
+}
+
+/* ---------- live voice preview (side panel) ---------- */
+let audioEl = null;
+function stopPreview() { if (audioEl) { audioEl.pause(); audioEl = null; } }
+function previewParams() { const d = S.draft; return { language: d.language, voice_id: d.voice.voice_id, speed: d.voice.speed }; }
+function voiceLabel() { const d = S.draft, v = S.voices; if (!v) return "Voice service offline"; const x = v.voices.find((y) => y.id === (d.voice.voice_id || v.default_voice_id)); return x ? x.name + (d.voice.voice_id ? "" : " (library default)") : "No voice available"; }
+function renderSide() {
+  const d = S.draft, pv = S.preview;
+  if (!pv.text || pv.langFor !== d.language) { pv.text = SAMPLE[d.language]; pv.langFor = d.language; }
+  $("#sidePanel").innerHTML = `
+    <div class="card"><h3>Live voice preview</h3>
+      <div class="row small" style="margin-bottom:8px"><span class="pill accent">${esc(voiceLabel())}</span><span class="pill">${LANG[d.language]}</span><span class="pill">${d.voice.speed.toFixed(2)}×</span></div>
+      <label class="f"><span>Enter text to preview your agent's voice</span><textarea id="pvText" maxlength="300" style="min-height:76px">${esc(pv.text)}</textarea></label>
+      <div class="wave ${pv.state === "playing" ? "live" : ""}" aria-hidden="true">${Array.from({ length: 28 }, (_, i) => `<i style="animation-delay:${(i * 53) % 900}ms"></i>`).join("")}</div>
+      <div class="row">
+        ${pv.state === "playing" ? '<button class="btn" id="pvPause">Pause</button>' : pv.state === "paused" ? '<button class="btn primary" id="pvResume">Resume</button>'
+          : `<button class="btn primary" id="pvPlay" ${pv.state === "loading" ? "disabled" : ""}>${pv.state === "loading" ? "Generating…" : "Play preview"}</button>`}
+        <button class="btn" id="pvReplay" ${pv.url ? "" : "disabled"}>Replay</button></div>
+      ${pv.state === "error" ? `<div class="banner bad small" style="margin-top:10px">${esc(pv.err)}</div>` : ""}
+      <p class="hint">Uses the real OmniVoice engine with the voice and speed above (unsaved changes included). Style and tone only affect the agent's wording, not this audio.</p></div>`;
+  $("#pvText").oninput = (e) => (S.preview.text = e.target.value);
+  const play = $("#pvPlay"); if (play) play.onclick = () => runPreview(false);
+  if ($("#pvPause")) $("#pvPause").onclick = () => { audioEl.pause(); setPv({ state: "paused" }); };
+  if ($("#pvResume")) $("#pvResume").onclick = () => audioEl.play();
+  $("#pvReplay").onclick = () => runPreview(true);
+}
+function setPv(p) { Object.assign(S.preview, p); if ($("#sidePanel")) { const t = $("#pvText") ? $("#pvText").value : S.preview.text; S.preview.text = t; renderSide(); } }
+async function runPreview(replay) {
+  const text = ($("#pvText").value || "").trim(); if (!text) { toast("Type some text to preview.", true); return; }
+  const params = { ...previewParams(), text }, sig = JSON.stringify(params);
+  stopPreview();
+  try {
+    if (!(replay && S.preview.url && S.preview.sig === sig)) {
+      setPv({ state: "loading", err: "" });
+      const res = await api("/voices/preview", { method: "POST", body: params });
+      const blob = await res.blob(); if (S.preview.url) URL.revokeObjectURL(S.preview.url);
+      S.preview.url = URL.createObjectURL(blob); S.preview.sig = sig;
+    }
+    audioEl = new Audio(S.preview.url);
+    audioEl.onplay = () => setPv({ state: "playing" });
+    audioEl.onpause = () => { if (audioEl && !audioEl.ended && S.preview.state === "playing") setPv({ state: "paused" }); };
+    audioEl.onended = () => setPv({ state: "idle" });
+    audioEl.onerror = () => setPv({ state: "error", err: "The browser could not play this audio." });
+    await audioEl.play();
+  } catch (e) {
+    setPv({ state: "error", err: e.status === 503 ? "The voice service (OmniVoice) is offline or still loading. Start it with tts_service/run-tts.ps1 and try again." : e.message });
+  }
+}
+
+/* ---------- boot ---------- */
+if (store.key === "" && location.search.includes("key=")) { /* never accept keys from URLs */ }
+route();
+</script>
+</body>
+</html>

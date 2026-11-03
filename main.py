@@ -4,10 +4,19 @@ import sys
 
 from fastapi import FastAPI
 
+# Call logs contain Hindi/Gujarati text. Under run-all.ps1, stdout is a file
+# opened in the Windows default encoding (cp1252), which can't hold Devanagari
+# or Gujarati: every such log line failed with UnicodeEncodeError and was
+# silently dropped - live calls looked like they stalled after the opening
+# when they had actually completed.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
 from config import settings
 from simple_db import init_db as init_legacy_db
 from db import init_db as init_rebuild_db
-from routers import agent_voice, agents, analytics, calls, campaigns, scenarios, voice, voice_scenario
+from routers import agent_voice, agents, analytics, calls, campaigns, scenarios, voice, voice_scenario, studio, voices, webrtc
 
 # ---------------------------------------------------------------------------
 # Logging - structured, consistent across all modules
@@ -25,10 +34,29 @@ logging.getLogger("websockets").setLevel(logging.WARNING)
 
 logger = logging.getLogger("main")
 
+# Fail loud at boot, not quietly at request time (services/auth.py still logs
+# a warning and allows requests through when ADMIN_API_KEY is unset - but only
+# in development, since this check stops the server from starting anywhere
+# else). "Forgot to set it" must not be able to silently ship an
+# unauthenticated routers/campaigns.py + routers/analytics.py to production.
+if settings.environment != "development" and not settings.admin_api_key:
+    raise RuntimeError(
+        f"ADMIN_API_KEY must be set when ENVIRONMENT={settings.environment!r} - "
+        "routers/campaigns.py (contacts/campaigns/kill-switch/dialer admin) and "
+        "routers/analytics.py (call transcripts/outcomes) would otherwise run "
+        "with no authentication. Set ADMIN_API_KEY in .env, or set "
+        "ENVIRONMENT=development if this really is a dev/test deployment."
+    )
+
 app = FastAPI(title="AI Calling Agent", description="Claude-powered voice AI calling agent")
 
 init_legacy_db()
 logger.info("Legacy DB initialized (data/legacy_app.db - agents/calls/messages)")
+from services import scenario_store as _scenario_store  # noqa: E402
+
+_swept = _scenario_store.sweep_stale()
+if _swept:
+    logger.info("Closed %d stale scenario call row(s) (never connected / interrupted by a restart)", _swept)
 
 # Generic free-form agent (any prompt, any use case)
 app.include_router(agents.router)
@@ -44,6 +72,15 @@ app.include_router(voice_scenario.router)
 app.include_router(campaigns.router)
 app.include_router(agent_voice.router)
 app.include_router(analytics.router)
+
+# Voice Studio: create/clone OmniVoice voices and assign them to scenarios/agents
+app.include_router(voices.router)
+
+# AI Agent Studio: user-configurable voice agents, training material, audio diagnostics
+app.include_router(studio.router)
+
+# Browser calls over WebRTC - same pipelines as phone calls, different transport
+app.include_router(webrtc.router)
 
 logger.info("All routers registered")
 
@@ -86,11 +123,74 @@ async def _stop_dialer_loop() -> None:
         _dialer_task.cancel()
 
 
-# Registration order matters: FastAPI runs "startup" handlers in the order
-# they're registered, and both handlers below must finish before the dialer
-# loop's first cycle can run correctly - _init_rebuild_db creates the tables
-# reconcile_active_call_count reads, and the reconciled counter must be in
-# place before run_dispatch_cycle makes its first admission decision.
+@app.on_event("shutdown")
+async def _close_local_llm_client() -> None:
+    from local_ai.llm_engine import aclose_client
+    from services.voice_pipeline import tts_cache
+
+    await aclose_client()
+    await tts_cache.aclose()
+    from services.voice_pipeline import webrtc_pipeline
+
+    await webrtc_pipeline.close_all()
+    if not settings.use_sarvam_stt and settings.local_stt_isolation == "process":
+        from services.voice_pipeline.stt_worker import worker
+
+        await asyncio.to_thread(worker.close)
+
+
+async def _warm_up_voice_stack() -> None:
+    """Load Qwen into VRAM and fill the TTS cache before the first call,
+    so the first caller of the day doesn't pay a ~10s model load or TTS
+    synthesis as dead air (the OmniVoice service loads its own model at its
+    own startup). Best-effort: failures are logged, not fatal."""
+    from local_ai import config as local_ai_config
+
+    if local_ai_config.LLM_BACKEND == "local":
+        try:
+            from local_ai.llm_engine import prime_prompt
+
+            await prime_prompt(
+                "Reply with the JSON.",
+                {"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"]},
+            )
+            logger.info("Local LLM warm (%s resident in GPU memory)", local_ai_config.OLLAMA_MODEL)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Local LLM warm-up failed (is `ollama serve` running?): %s", e)
+
+    if settings.scenario_voice_transport == "media" and not settings.use_sarvam_stt:
+        from services.voice_pipeline.local_stt import preload
+
+        try:
+            langs = [l.strip() for l in settings.local_stt_preload.split(",") if l.strip()]
+            specs = [(settings.local_stt_model_for(l), settings.local_stt_compute_type) for l in langs]
+            await asyncio.to_thread(preload, specs, settings.local_stt_isolation)
+            logger.info("Local STT warm for %s (%s): %s", langs, settings.local_stt_isolation, [s for s, _ in specs])
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Local STT preload failed - calls will load it on first use: %s", e)
+
+    if settings.scenario_voice_transport == "media":
+        from services.tts import client as tts_client
+        from services.voice_pipeline.scenario_pipeline import prewarm_static_lines
+
+        try:
+            await tts_client.health()
+            await prewarm_static_lines()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("TTS prewarm failed: %s", e)
+
+
+@app.on_event("startup")
+async def _start_voice_warmup() -> None:
+    asyncio.create_task(_warm_up_voice_stack())
+
+
+# Registration order still matters for this one: _init_rebuild_db must run
+# before _reconcile_and_start_dialer, since it creates the tables
+# reconcile_active_call_count reads. (The reconcile-then-start pair below used
+# to be two separate startup hooks, which meant a future edit could silently
+# reorder them and reintroduce the concurrency-counter leak this closes -
+# merged into one function so that specific pair can no longer be separated.)
 @app.on_event("startup")
 async def _init_rebuild_db() -> None:
     """Creates models.py's SQLAlchemy tables (Agent/AgentVersion/Prompt/
@@ -118,20 +218,23 @@ async def _init_rebuild_db() -> None:
 
 
 @app.on_event("startup")
-async def _reconcile_dialer_state() -> None:
+async def _reconcile_and_start_dialer() -> None:
     """Recomputes the active-call concurrency counter from the database
     instead of trusting whatever Redis held across a restart - closes the
     counter leak documented in PHASE2_ARCHITECTURE_PROPOSAL.md's "known
     limitations" (an ungraceful shutdown skips the decrement in
     mark_call_ended, permanently occupying a concurrency slot until this
-    runs). Must run before the dialer loop starts, since it reads the
-    counter to decide how many calls it may originate this cycle.
+    runs) - then starts the dialer loop, in that order, in the same
+    function, so no future edit can silently separate them and reintroduce
+    the leak (they used to be two independent @app.on_event hooks).
 
     Redis is optional for local dev (Track A/B calling and most of the API
     don't touch it at all) - a missing/unreachable Redis must not prevent
     the whole server from booting just to serve those. Reconciliation is
     only meaningful once Redis and the dialer are actually in play, so a
-    connection failure here is logged and skipped, not fatal."""
+    connection failure here is logged and skipped, not fatal - the dialer
+    loop still starts (if enabled) on an unreconciled counter in that case,
+    same behavior as before this change."""
     from db import session_scope
     from services.dispatch.dialer import reconcile_active_call_count
 
@@ -145,9 +248,6 @@ async def _reconcile_dialer_state() -> None:
             "This only matters if the dialer is in use. Error: %s", e,
         )
 
-
-@app.on_event("startup")
-async def _start_dialer_loop() -> None:
     global _dialer_task
     if settings.dialer_enabled:
         _dialer_task = asyncio.create_task(_dialer_loop())

@@ -7,7 +7,11 @@
   "max_attempts": 2,
   "no_answer_outcome": "no_response_reminder_logged",
   "no_answer_action": "Supervisor notified.",
-  "required_facts": ["employee_name", "time", "terminal"],
+  "required_facts": [
+    "employee_name",
+    "time",
+    "terminal"
+  ],
   "knowledge_base": [
     "This is a helpful reminder, not an accusation. The most common cause is a forgotten punch or a geofence issue, not absence.",
     "Never mention lateness, records, warnings or consequences. Not once.",
@@ -22,138 +26,203 @@
       "tts_language": "en-IN",
       "transcription_language": "en-IN",
       "voice": "en-IN-Neural2-B",
-      "opening": "Hello {employee_name}, your duty started at {time} and your punch-in has not been recorded yet. Please punch in as soon as you reach {terminal}.",
-      "attempt_2_opening": "Hello {employee_name}, this is a follow-up reminder - your punch-in for today's shift is still pending. Please punch in now.",
-      "silence_reply": "It seems you're unable to respond right now. Please punch in as soon as possible. Thank you!",
+      "opening": "Hi {employee_name}, this is ShiftEaze calling. Your duty started at {time}, but we don't see your punch-in yet. Please punch in as soon as you reach {terminal}, okay?",
+      "attempt_2_opening": "Hi {employee_name}, ShiftEaze again. We still don't see your punch-in. Please do it as soon as you get there, okay?",
+      "silence_reply": "Looks like we can't connect right now. I'll try you again a bit later. Thank you!",
       "branches": {
         "acknowledged": {
           "description": "Operator acknowledges the reminder, is on the way, or has arrived.",
-          "keywords": ["I'm coming", "on my way", "at the gate", "reached", "give me a minute"],
-          "reply": "Alright, please punch in as soon as you arrive. Thank you!",
+          "keywords": [
+            "I'm coming",
+            "on my way",
+            "at the gate",
+            "reached",
+            "give me a minute"
+          ],
+          "reply": "Okay, thank you! Please punch in as soon as you get there.",
           "outcome": "acknowledged_pending_verification",
           "end_call": true
         },
         "already_punched": {
           "description": "Operator says they already punched in.",
-          "keywords": ["I already punched in", "already done", "I did it"],
-          "reply": "Understood, we'll recheck this in the system. Thank you!",
+          "keywords": [
+            "I already punched in",
+            "already done",
+            "I did it"
+          ],
+          "reply": "Oh, okay. I'll have it checked in the system again. Thank you!",
           "outcome": "operator_claims_done_recheck_flagged",
           "end_call": true
         },
         "technical_issue": {
           "description": "Operator reports a scanner, machine or app problem preventing the punch-in.",
-          "keywords": ["scanner not working", "machine is down", "can't scan"],
-          "reply": "I'm sorry for the trouble. I'll inform your supervisor right away. Thank you!",
+          "keywords": [
+            "scanner not working",
+            "machine is down",
+            "can't scan"
+          ],
+          "reply": "Oh, sorry about that trouble. I'll let your supervisor know right away. Thank you!",
           "outcome": "technical_issue_escalated",
           "end_call": true
         },
         "supervisor": {
           "description": "Operator wants to speak to a supervisor or a human.",
-          "keywords": ["talk to my supervisor", "connect me to a person"],
-          "reply": "I'll pass this on to your supervisor, {supervisor_name}. Thank you!",
+          "keywords": [
+            "talk to my supervisor",
+            "connect me to a person"
+          ],
+          "reply": "Sure, I'll let your supervisor know, and they'll get in touch with you. Thank you!",
           "outcome": "escalated_supervisor_notified",
           "end_call": true
         },
         "wrong_number": {
           "description": "Wrong number or the person is not the named operator.",
-          "keywords": ["wrong number", "this isn't {employee_name}", "who is this"],
-          "reply": "I'm sorry for the inconvenience. I'll correct this on our end. Thank you!",
+          "keywords": [
+            "wrong number",
+            "this isn't {employee_name}",
+            "who is this"
+          ],
+          "reply": "Oh, I'm sorry, I must have the wrong number. Apologies for the trouble. Thank you!",
           "outcome": "data_mismatch_flagged",
           "end_call": true
         }
-      }
+      },
+      "unclear_reprompt": "Sorry, I didn't quite catch that. You'll punch in when you get there, right?",
+      "silence_checkin": "Hello? Can you hear me?"
     },
     "hi": {
       "language_name": "Hindi",
       "tts_language": "hi-IN",
       "transcription_language": "hi-IN",
       "voice": "hi-IN-Neural2-B",
-      "opening": "नमस्ते {employee_name}, आपकी ड्यूटी {time} बजे शुरू हो गई है और अभी तक आपका पंच-इन दर्ज नहीं हुआ है। कृपया {terminal} पहुंचते ही पंच-इन करें।",
-      "attempt_2_opening": "हेलो {employee_name} भाई, ये फॉलो-अप रिमाइंडर है — आज की शिफ्ट का पंच-इन अभी भी पेंडिंग है। कृपया अभी पंच-इन करिए।",
-      "silence_reply": "ऐसा लगता है कि आप अभी उत्तर नहीं दे पा रहे हैं। कृपया जितनी जल्दी हो सके पंच-इन करें। आपका धन्यवाद!",
+      "opening": "नमस्ते {employee_name} जी, मैं शिफ्टईज़ से बोल रही हूँ। आपकी ड्यूटी {time} बजे शुरू हो चुकी है, पर अभी तक आपका पंच-इन नहीं दिखा। {terminal} पहुँचते ही पंच-इन कर लीजिएगा, ठीक है?",
+      "attempt_2_opening": "नमस्ते {employee_name} जी, शिफ्टईज़ से दोबारा बोल रही हूँ। आपका पंच-इन अभी भी नहीं दिख रहा। पहुँचते ही कर लीजिएगा, ठीक है?",
+      "silence_reply": "लगता है अभी बात नहीं हो पा रही। मैं बाद में दोबारा कॉल कर लूँगी। धन्यवाद!",
       "branches": {
         "acknowledged": {
           "description": "Operator acknowledges the reminder, is on the way, or has arrived.",
-          "keywords": ["आ रहा हूं", "रास्ते में हूं", "गेट पर हूं", "पहुंच गया", "एक मिनट दो"],
-          "reply": "ठीक है, पहुंचते ही कृपया पंच-इन कर लें। आपका धन्यवाद!",
+          "keywords": [
+            "आ रहा हूं",
+            "रास्ते में हूं",
+            "गेट पर हूं",
+            "पहुंच गया",
+            "एक मिनट दो"
+          ],
+          "reply": "ठीक है, धन्यवाद! पहुँचते ही पंच-इन कर लीजिएगा।",
           "outcome": "acknowledged_pending_verification",
           "end_call": true
         },
         "already_punched": {
           "description": "Operator says they already punched in.",
-          "keywords": ["मैंने पंच-इन कर दिया है", "हो गया है", "कर दिया"],
-          "reply": "समझ गया, हम इसे सिस्टम में दोबारा जांच लेंगे। आपका धन्यवाद!",
+          "keywords": [
+            "मैंने पंच-इन कर दिया है",
+            "हो गया है",
+            "कर दिया"
+          ],
+          "reply": "अच्छा, ठीक है। मैं सिस्टम में दोबारा चेक करवा लेती हूँ। धन्यवाद!",
           "outcome": "operator_claims_done_recheck_flagged",
           "end_call": true
         },
         "technical_issue": {
           "description": "Operator reports a scanner, machine or app problem preventing the punch-in.",
-          "keywords": ["स्कैनर नहीं चल रहा", "मशीन खराब है", "स्कैन नहीं हो रहा"],
-          "reply": "इस परेशानी के लिए क्षमा करें। मैं अभी आपके सुपरवाइज़र को सूचित कर देता हूं। आपका धन्यवाद!",
+          "keywords": [
+            "स्कैनर नहीं चल रहा",
+            "मशीन खराब है",
+            "स्कैन नहीं हो रहा"
+          ],
+          "reply": "ओह, इस परेशानी के लिए माफ़ी चाहती हूँ। मैं अभी आपके सुपरवाइज़र को बता देती हूँ। धन्यवाद!",
           "outcome": "technical_issue_escalated",
           "end_call": true
         },
         "supervisor": {
           "description": "Operator wants to speak to a supervisor or a human.",
-          "keywords": ["मुझे सुपरवाइज़र से बात करनी है"],
-          "reply": "मैं यह बात आपके सुपरवाइज़र {supervisor_name} को बता दूंगा। आपका धन्यवाद!",
+          "keywords": [
+            "मुझे सुपरवाइज़र से बात करनी है"
+          ],
+          "reply": "ठीक है, मैं आपके सुपरवाइज़र को बता देती हूँ, वो आपसे बात कर लेंगे। धन्यवाद!",
           "outcome": "escalated_supervisor_notified",
           "end_call": true
         },
         "wrong_number": {
           "description": "Wrong number or the person is not the named operator.",
-          "keywords": ["गलत नंबर है", "मैं {employee_name} नहीं हूं"],
-          "reply": "असुविधा के लिए क्षमा करें, मैं इसे ठीक करवा दूंगा। आपका धन्यवाद!",
+          "keywords": [
+            "गलत नंबर है",
+            "मैं {employee_name} नहीं हूं"
+          ],
+          "reply": "ओह, माफ़ कीजिए, शायद गलत नंबर लग गया। परेशानी के लिए माफ़ी चाहती हूँ। धन्यवाद!",
           "outcome": "data_mismatch_flagged",
           "end_call": true
         }
-      }
+      },
+      "unclear_reprompt": "माफ़ कीजिए, ठीक से सुनाई नहीं दिया। आप पहुँचकर पंच-इन कर लेंगे ना?",
+      "silence_checkin": "हेलो? आप सुन पा रहे हैं?"
     },
     "gu": {
       "language_name": "Gujarati",
       "tts_language": "gu-IN",
       "transcription_language": "gu-IN",
       "voice": "gu-IN-Wavenet-B",
-      "opening": "નમસ્તે {employee_name}, તમારી ડ્યુટી {time} વાગ્યે શરૂ થઈ ગઈ છે અને હજુ સુધી તમારો પંચ-ઇન નોંધાયો નથી. કૃપા કરી {terminal} પહોંચતાની સાથે જ પંચ-ઇન કરો.",
-      "attempt_2_opening": "હેલો {employee_name} ભાઈ, આ ફોલો-અપ રિમાઇન્ડર છે — આજની શિફ્ટનો પંચ-ઇન હજુ પણ પેન્ડિંગ છે. કૃપા કરીને હવે પંચ-ઇન કરી દેજો.",
-      "silence_reply": "એવું લાગે છે કે તમે અત્યારે જવાબ આપી શકતા નથી. કૃપા કરી બની શકે એટલું જલ્દી પંચ-ઇન કરો. તમારો આભાર!",
+      "opening": "નમસ્તે {employee_name}, હું શિફ્ટઈઝ માંથી બોલું છું. તમારી ડ્યુટી {time} વાગ્યે શરૂ થઈ ગઈ છે, પણ હજુ તમારું પંચ-ઇન દેખાતું નથી. {terminal} પહોંચતા જ પંચ-ઇન કરી લેજો, બરાબર?",
+      "attempt_2_opening": "નમસ્તે {employee_name}, શિફ્ટઈઝ માંથી ફરી બોલું છું. તમારું પંચ-ઇન હજુ પણ દેખાતું નથી. પહોંચતા જ કરી લેજો, બરાબર?",
+      "silence_reply": "લાગે છે અત્યારે વાત નથી થઈ શકતી. હું થોડી વાર પછી ફરી ફોન કરીશ. આભાર!",
       "branches": {
         "acknowledged": {
           "description": "Operator acknowledges the reminder, is on the way, or has arrived.",
-          "keywords": ["આવી રહ્યો છું", "રસ્તામાં છું", "ગેટ પર છું", "પહોંચી ગયો", "એક મિનિટ આપો"],
-          "reply": "ભલે, પહોંચતાની સાથે જ કૃપા કરી પંચ-ઇન કરી લો. તમારો આભાર!",
+          "keywords": [
+            "આવી રહ્યો છું",
+            "રસ્તામાં છું",
+            "ગેટ પર છું",
+            "પહોંચી ગયો",
+            "એક મિનિટ આપો"
+          ],
+          "reply": "બરાબર, આભાર! પહોંચતા જ પંચ-ઇન કરી લેજો.",
           "outcome": "acknowledged_pending_verification",
           "end_call": true
         },
         "already_punched": {
           "description": "Operator says they already punched in.",
-          "keywords": ["મેં પંચ-ઇન કરી દીધું છે", "થઈ ગયું છે", "કરી દીધું"],
-          "reply": "સમજાયું, અમે આ સિસ્ટમમાં ફરી ચકાસી લઈશું. તમારો આભાર!",
+          "keywords": [
+            "મેં પંચ-ઇન કરી દીધું છે",
+            "થઈ ગયું છે",
+            "કરી દીધું"
+          ],
+          "reply": "સારું, બરાબર. હું સિસ્ટમમાં ફરીથી ચેક કરાવી લઉં છું. આભાર!",
           "outcome": "operator_claims_done_recheck_flagged",
           "end_call": true
         },
         "technical_issue": {
           "description": "Operator reports a scanner, machine or app problem preventing the punch-in.",
-          "keywords": ["સ્કેનર ચાલતું નથી", "મશીન બગડેલું છે", "સ્કેન થતું નથી"],
-          "reply": "આ તકલીફ બદલ માફ કરશો. હું હમણાં જ તમારા સુપરવાઇઝરને જાણ કરી દઉં છું. તમારો આભાર!",
+          "keywords": [
+            "સ્કેનર ચાલતું નથી",
+            "મશીન બગડેલું છે",
+            "સ્કેન થતું નથી"
+          ],
+          "reply": "ઓહ, આ તકલીફ બદલ માફી. હું હમણાં જ તમારા સુપરવાઇઝરને જણાવી દઉં છું. આભાર!",
           "outcome": "technical_issue_escalated",
           "end_call": true
         },
         "supervisor": {
           "description": "Operator wants to speak to a supervisor or a human.",
-          "keywords": ["સુપરવાઇઝર સાથે વાત કરાવો"],
-          "reply": "હું આ વાત તમારા સુપરવાઇઝર {supervisor_name} ને જણાવીશ. તમારો આભાર!",
+          "keywords": [
+            "સુપરવાઇઝર સાથે વાત કરાવો"
+          ],
+          "reply": "બરાબર, હું તમારા સુપરવાઇઝરને જણાવી દઉં છું, તેઓ તમારી સાથે વાત કરશે. આભાર!",
           "outcome": "escalated_supervisor_notified",
           "end_call": true
         },
         "wrong_number": {
           "description": "Wrong number or the person is not the named operator.",
-          "keywords": ["ખોટો નંબર છે", "હું {employee_name} નથી"],
-          "reply": "અગવડ બદલ માફ કરશો, હું આ સુધારી લઈશ. તમારો આભાર!",
+          "keywords": [
+            "ખોટો નંબર છે",
+            "હું {employee_name} નથી"
+          ],
+          "reply": "ઓહ, માફ કરજો, કદાચ ખોટો નંબર લાગી ગયો. તકલીફ બદલ માફી. આભાર!",
           "outcome": "data_mismatch_flagged",
           "end_call": true
         }
-      }
+      },
+      "unclear_reprompt": "માફ કરજો, બરાબર સંભળાયું નહીં. તમે પહોંચીને પંચ-ઇન કરી લેશો ને?",
+      "silence_checkin": "હેલો? તમને સંભળાય છે?"
     }
   }
 }

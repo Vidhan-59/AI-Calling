@@ -58,6 +58,48 @@ def test_enforce_deflects_hallucination_guard_without_crashing():
     assert safe_text != text
 
 
+def test_disclosure_warns_when_missing_on_first_turn():
+    text = "Kal aap shift ke liye aa rahe hain?"
+    violations = check_output_text(
+        text, guardrail_ids=["disclose_ai_and_recording"], is_first_turn=True
+    )
+    assert any(v.rule_id == "disclose_ai_and_recording" and v.severity == Severity.WARN for v in violations)
+
+
+def test_disclosure_silent_when_present_on_first_turn():
+    text = "Namaste, main ShiftEaze ka automated calling assistant hoon, yeh call record ho sakti hai."
+    violations = check_output_text(
+        text, guardrail_ids=["disclose_ai_and_recording"], is_first_turn=True
+    )
+    assert not any(v.rule_id == "disclose_ai_and_recording" for v in violations)
+
+
+def test_disclosure_not_checked_on_later_turns():
+    text = "Kal aap shift ke liye aa rahe hain?"
+    violations = check_output_text(
+        text, guardrail_ids=["disclose_ai_and_recording"], is_first_turn=False
+    )
+    assert not any(v.rule_id == "disclose_ai_and_recording" for v in violations)
+
+
+def test_enforce_prepends_disclosure_when_model_forgot_it():
+    text = "Kal aap shift ke liye aa rahe hain?"
+    safe_text, violations = enforce(
+        text, guardrail_ids=["disclose_ai_and_recording"], is_first_turn=True, language="hi"
+    )
+    assert safe_text.startswith("Namaste, main ShiftEaze ka automated calling assistant")
+    assert text in safe_text
+    assert any(v.rule_id == "disclose_ai_and_recording" for v in violations)
+
+
+def test_enforce_does_not_duplicate_disclosure_already_present():
+    text = "Namaste, main ShiftEaze ka automated calling assistant hoon. Kal shift confirm karni hai?"
+    safe_text, _ = enforce(
+        text, guardrail_ids=["disclose_ai_and_recording"], is_first_turn=True, language="hi"
+    )
+    assert safe_text == text
+
+
 def test_clean_text_produces_no_violations():
     text = "Namaste Amit bhai, kya aap kal ki shift ke liye aa rahe hain?"
     violations = check_output_text(text, guardrail_ids=["no_wage_discussion", "no_leave_approval"])
@@ -84,3 +126,11 @@ def test_scan_input_clean_utterance():
     result = scan_input("Haan main kal shift par aaunga.")
     assert result.prompt_injection_flagged is False
     assert result.wrong_number_hint is False
+
+
+def test_hallucination_guard_ignores_the_company_name():
+    # "shift" inside "ShiftEaze" is not a shift detail - matching it as a
+    # substring deflected every opening line that named the company.
+    text = "Namaste, main ShiftEaze ka automated calling assistant hoon, yeh call record ho sakti hai."
+    violations = check_output_text(text, guardrail_ids=["hallucination_guard"], roster_available=False)
+    assert not any(v.rule_id == "hallucination_guard" for v in violations)

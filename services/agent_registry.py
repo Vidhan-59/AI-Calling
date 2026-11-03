@@ -27,8 +27,10 @@ from services.flow.graph import FlowGraph
 
 class VoiceConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    provider: Literal["sarvam", "azure", "elevenlabs", "mock"]
-    voice_id: str
+    provider: Literal["omnivoice"] = "omnivoice"
+    # "default" = no preference: Voice Studio's assignment, else the library
+    # default. Any other value must be a voice id from Voice Studio.
+    voice_id: str = "default"
     speed: float = 1.0
 
 

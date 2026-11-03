@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Voice Studio</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #fff; --ink: #14181f; --muted: #5d6675; --line: #dde1e8;
+    --accent: #2457d6; --accent-ink: #fff; --danger: #c0352b; --ok: #1b7f4c; --warn: #9a6700;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #11141a; --card: #1a1f28; --ink: #e8ebf0; --muted: #98a2b3; --line: #2b3240;
+            --accent: #6f93f5; --accent-ink: #0b0f17; --danger: #ef7066; --ok: #4cc38a; --warn: #e3b341; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between;
+           padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--card); }
+  header h1 { font-size: 18px; margin: 0; }
+  main { max-width: 1100px; margin: 0 auto; padding: 20px; display: grid; gap: 20px; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 18px; }
+  section h2 { font-size: 16px; margin: 0 0 4px; }
+  .hint { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 800px) { .grid2 { grid-template-columns: 1fr; } main { padding: 12px; } }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 4px; }
+  input, select, textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px;
+           background: var(--bg); color: var(--ink); font: inherit; }
+  textarea { min-height: 64px; resize: vertical; }
+  button { padding: 8px 14px; border: 1px solid var(--line); border-radius: 6px; background: var(--card);
+           color: var(--ink); font: inherit; cursor: pointer; }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  button.danger { color: var(--danger); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 8px; }
+  .tabs button[aria-selected="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .voice { border: 1px solid var(--line); border-radius: 8px; padding: 12px; display: grid; gap: 8px; }
+  .voices { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+  .voice h3 { margin: 0; font-size: 15px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .pill { font-size: 11px; padding: 1px 8px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); }
+  .pill.def { color: var(--ok); border-color: var(--ok); }
+  .meta { color: var(--muted); font-size: 13px; }
+  audio { width: 100%; height: 36px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  td select { padding: 5px 8px; }
+  #status { font-size: 13px; }
+  #status.ok { color: var(--ok); } #status.bad { color: var(--danger); } #status.warn { color: var(--warn); }
+  #toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bg);
+           padding: 10px 16px; border-radius: 8px; display: none; max-width: 90vw; z-index: 10; }
+  .rec-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--danger); animation: pulse 1s infinite; }
+  @keyframes pulse { 50% { opacity: .25; } }
+  .empty { color: var(--muted); padding: 20px; text-align: center; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Voice Studio</h1>
+  <div class="row" style="margin:0">
+    <span id="status" class="warn">connecting…</span>
+    <input id="apiKey" type="password" placeholder="Admin API key" style="width:200px" autocomplete="off">
+    <button id="saveKey">Connect</button>
+  </div>
+</header>
+
+<main>
+  <section>
+    <h2>Create a voice</h2>
+    <p class="hint">Clone a real voice from a short sample, or design one from attributes. The voice is saved and can be assigned to calls below.</p>
+    <div class="tabs" role="tablist">
+      <button role="tab" id="tabClone" aria-selected="true">Clone from audio</button>
+      <button role="tab" id="tabDesign" aria-selected="false">Design from attributes</button>
+    </div>
+
+    <div id="paneClone">
+      <div class="grid2">
+        <div>
+          <label for="cName">Voice name</label>
+          <input id="cName" maxlength="80" placeholder="e.g. Priya – shift desk">
+          <label for="cLang">Language of the sample</label>
+          <select id="cLang"></select>
+          <label for="cDesc">Description (optional)</label>
+          <input id="cDesc" maxlength="300">
+          <label for="cText">What the sample says (optional – leave blank to auto-transcribe)</label>
+          <textarea id="cText" placeholder="Exact words spoken in the sample. Improves quality."></textarea>
+        </div>
+        <div>
+          <label>Sample audio (3–10 seconds of clear speech, one speaker, no music)</label>
+          <div class="row" style="margin-top:0">
+            <button id="recBtn">● Record</button>
+            <span class="meta">or</span>
+            <input id="cFile" type="file" accept="audio/*" style="flex:1; min-width:180px">
+          </div>
+          <div id="recInfo" class="meta" style="margin-top:8px"></div>
+          <audio id="cPreview" controls style="display:none; margin-top:10px"></audio>
+          <p class="hint" style="margin-top:10px">Only clone voices you have the speaker's permission to use. Calls using a cloned voice should still disclose they are automated.</p>
+          <div class="row"><button class="primary" id="cSave" disabled>Save voice</button></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="paneDesign" hidden>
+      <div class="grid2">
+        <div>
+          <label for="dName">Voice name</label>
+          <input id="dName" maxlength="80" placeholder="e.g. Calm female – Hindi">
+          <label for="dLang">Language</label>
+          <select id="dLang"></select>
+          <label for="dDesc">Description (optional)</label>
+          <input id="dDesc" maxlength="300">
+        </div>
+        <div>
+          <label for="dGender">Gender</label>
+          <select id="dGender"><option>female</option><option>male</option></select>
+          <label for="dAge">Age</label>
+          <select id="dAge"><option value="">any</option><option>young adult</option><option>middle-aged</option><option>elderly</option></select>
+          <label for="dPitch">Pitch</label>
+          <select id="dPitch"><option value="">any</option><option>very low pitch</option><option>low pitch</option><option>moderate pitch</option><option>high pitch</option><option>very high pitch</option></select>
+          <label for="dAccent">English accent (English only)</label>
+          <select id="dAccent"><option value="">none</option><option>indian accent</option><option>british accent</option><option>american accent</option><option>australian accent</option></select>
+          <label for="dInstruct">Resulting description sent to the model</label>
+          <input id="dInstruct" readonly>
+          <p class="hint" style="margin-top:8px">Voice design was trained on English and Chinese; for Hindi/Gujarati, cloning a real recording is more stable. The designed voice is rendered once and then reused, so it sounds identical on every call.</p>
+          <div class="row"><button class="primary" id="dSave">Create voice</button></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Voice library</h2>
+    <p class="hint">Type a line and press ▶ on any voice to hear it. The default voice is used wherever nothing more specific is assigned.</p>
+    <label for="tryText">Test sentence</label>
+    <input id="tryText" value="नमस्ते, मैं आपकी शिफ्ट के बारे में फ़ोन कर रही हूँ।">
+    <div class="row">
+      <label for="tryLang" style="margin:0">Language</label><select id="tryLang" style="width:auto"></select>
+      <label for="trySpeed" style="margin:0">Speed</label><input id="trySpeed" type="number" min="0.5" max="2" step="0.05" value="1" style="width:80px">
+    </div>
+    <div id="voices" class="voices" style="margin-top:14px"></div>
+  </section>
+
+  <section>
+    <h2>Assign voices to calls</h2>
+    <p class="hint">Pick which voice speaks for each scenario/agent and language. "Use default" falls back to the library default. Changes apply to the next call; audio for changed voices is regenerated automatically.</p>
+    <div style="overflow-x:auto"><table id="assign"><thead><tr><th>Scenario / agent</th><th>Hindi</th><th>Gujarati</th><th>English</th></tr></thead><tbody></tbody></table></div>
+  </section>
+</main>
+<div id="toast" role="status"></div>
+
+<script>
+"use strict";
+const LANGS = { hi: "Hindi", gu: "Gujarati", en: "English" };
+const $ = (id) => document.getElementById(id);
+let state = { voices: [], assignments: {}, owners: [], default_voice_id: null };
+
+const keyStore = { get() { try { return localStorage.getItem("adminKey") || ""; } catch { return ""; } },
+                   set(v) { try { localStorage.setItem("adminKey", v); } catch {} } };
+
+function toast(msg, ms = 3500) {
+  const t = $("toast"); t.textContent = msg; t.style.display = "block";
+  clearTimeout(toast._t); toast._t = setTimeout(() => (t.style.display = "none"), ms);
+}
+function setStatus(text, cls) { const s = $("status"); s.textContent = text; s.className = cls; }
+
+async function api(path, opts = {}) {
+  const headers = { ...(opts.headers || {}) };
+  const key = keyStore.get(); if (key) headers["X-API-Key"] = key;
+  const res = await fetch(path, { ...opts, headers });
+  if (!res.ok) {
+    let detail = res.statusText;
+    try { const j = await res.json(); detail = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail); } catch {}
+    const err = new Error(detail); err.status = res.status; throw err;
+  }
+  return res;
+}
+const json = (body, method = "POST") => ({ method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+
+function fillLangSelect(sel) {
+  sel.innerHTML = ""; for (const [k, v] of Object.entries(LANGS)) sel.add(new Option(v, k));
+}
+
+/* ---------- audio helpers: everything becomes 16-bit mono WAV in the browser ---------- */
+async function toWav(blob) {
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  let buf;
+  try { buf = await ctx.decodeAudioData(await blob.arrayBuffer()); }
+  catch { throw new Error("This browser could not read that audio file. Try WAV or MP3, or record instead."); }
+  finally { ctx.close(); }
+  const rate = 24000, len = Math.round(buf.duration * rate);
+  const off = new OfflineAudioContext(1, len, rate);
+  const src = off.createBufferSource(); src.buffer = buf; src.connect(off.destination); src.start();
+  const mono = (await off.startRendering()).getChannelData(0);
+  const pcm = new DataView(new ArrayBuffer(44 + mono.length * 2));
+  const w = (o, s) => [...s].forEach((c, i) => pcm.setUint8(o + i, c.charCodeAt(0)));
+  w(0, "RIFF"); pcm.setUint32(4, 36 + mono.length * 2, true); w(8, "WAVE"); w(12, "fmt ");
+  pcm.setUint32(16, 16, true); pcm.setUint16(20, 1, true); pcm.setUint16(22, 1, true);
+  pcm.setUint32(24, rate, true); pcm.setUint32(28, rate * 2, true); pcm.setUint16(32, 2, true); pcm.setUint16(34, 16, true);
+  w(36, "data"); pcm.setUint32(40, mono.length * 2, true);
+  for (let i = 0; i < mono.length; i++) pcm.setInt16(44 + i * 2, Math.max(-1, Math.min(1, mono[i])) * 32767, true);
+  return { wav: new Blob([pcm], { type: "audio/wav" }), seconds: buf.duration };
+}
+
+/* ---------- clone: record / upload ---------- */
+let sample = null; // { wav: Blob, seconds }
+let recorder = null, recChunks = [], recTimer = null;
+
+function setSample(s) {
+  sample = s;
+  const a = $("cPreview");
+  if (s) { a.src = URL.createObjectURL(s.wav); a.style.display = "block"; } else a.style.display = "none";
+  const info = $("recInfo");
+  if (s) {
+    const ok = s.seconds >= 2 && s.seconds <= 20;
+    info.textContent = `${s.seconds.toFixed(1)}s captured` + (s.seconds < 3 ? " – a little short, 3–10s is best" : s.seconds > 12 ? " – long; 3–10s works best" : "");
+    info.style.color = ok ? "" : "var(--danger)";
+    if (!ok) info.textContent = `${s.seconds.toFixed(1)}s – must be between 2 and 20 seconds`;
+  } else info.textContent = "";
+  $("cSave").disabled = !(s && s.seconds >= 2 && s.seconds <= 20);
+}
+
+$("recBtn").onclick = async () => {
+  if (recorder) { recorder.stop(); return; }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: true } });
+    recChunks = []; recorder = new MediaRecorder(stream);
+    recorder.ondataavailable = (e) => e.data.size && recChunks.push(e.data);
+    recorder.onstop = async () => {
+      clearTimeout(recTimer); stream.getTracks().forEach((t) => t.stop());
+      const blob = new Blob(recChunks, { type: recorder.mimeType }); recorder = null;
+      $("recBtn").textContent = "● Record";
+      try { setSample(await toWav(blob)); } catch (e) { toast(e.message); }
+    };
+    recorder.start();
+    $("recBtn").innerHTML = '<span class="rec-dot"></span> Stop';
+    $("recInfo").textContent = "Recording… read a natural sentence (max 12 s)";
+    recTimer = setTimeout(() => recorder && recorder.stop(), 12000);
+  } catch (e) { toast("Microphone unavailable: " + e.message); }
+};
+$("cFile").onchange = async (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  try { setSample(await toWav(f)); } catch (err) { setSample(null); toast(err.message); }
+};
+
+$("cSave").onclick = async () => {
+  const name = $("cName").value.trim();
+  if (!name) return toast("Give the voice a name.");
+  const fd = new FormData();
+  fd.append("name", name); fd.append("language", $("cLang").value);
+  fd.append("description", $("cDesc").value); fd.append("ref_text", $("cText").value.trim());
+  fd.append("file", sample.wav, "reference.wav");
+  $("cSave").disabled = true; $("cSave").textContent = "Building voice…";
+  try { await api("/voices/clone", { method: "POST", body: fd }); toast("Voice saved."); resetClone(); await load(); }
+  catch (e) { toast("Could not save: " + e.message, 6000); }
+  finally { $("cSave").textContent = "Save voice"; $("cSave").disabled = !sample; }
+};
+function resetClone() { ["cName", "cDesc", "cText"].forEach((i) => ($(i).value = "")); $("cFile").value = ""; setSample(null); }
+
+/* ---------- design ---------- */
+function instruct() {
+  return ["dGender", "dAge", "dPitch", "dAccent"].map((i) => $(i).value).filter(Boolean).join(", ");
+}
+["dGender", "dAge", "dPitch", "dAccent"].forEach((i) => ($(i).onchange = () => ($("dInstruct").value = instruct())));
+$("dSave").onclick = async () => {
+  const name = $("dName").value.trim();
+  if (!name) return toast("Give the voice a name.");
+  $("dSave").disabled = true; $("dSave").textContent = "Designing voice…";
+  try {
+    await api("/voices/design", json({ name, language: $("dLang").value, instruct: instruct(), description: $("dDesc").value }));
+    toast("Voice created."); $("dName").value = ""; await load();
+  } catch (e) { toast("Could not create: " + e.message, 6000); }
+  finally { $("dSave").textContent = "Create voice"; $("dSave").disabled = false; }
+};
+
+function selectTab(clone) {
+  $("tabClone").setAttribute("aria-selected", clone); $("tabDesign").setAttribute("aria-selected", !clone);
+  $("paneClone").hidden = !clone; $("paneDesign").hidden = clone;
+}
+$("tabClone").onclick = () => selectTab(true); $("tabDesign").onclick = () => selectTab(false);
+
+/* ---------- library ---------- */
+function esc(s) { const d = document.createElement("div"); d.textContent = s ?? ""; return d.innerHTML; }
+
+function renderVoices() {
+  const host = $("voices");
+  if (!state.voices.length) { host.innerHTML = '<div class="empty">No voices yet – create one above.</div>'; return; }
+  host.innerHTML = "";
+  for (const v of state.voices) {
+    const el = document.createElement("div"); el.className = "voice";
+    el.innerHTML = `
+      <h3>${esc(v.name)} <span class="pill">${v.kind}</span> <span class="pill">${LANGS[v.language] || v.language}</span>
+        ${v.is_default ? '<span class="pill def">default</span>' : ""}</h3>
+      <div class="meta">${esc(v.description || v.instruct || "")}</div>
+      <audio controls preload="none" data-ref="${v.id}"></audio>
+      <div class="row" style="margin:0">
+        <button data-act="try">▶ Speak test sentence</button>
+        ${v.is_default ? "" : '<button data-act="default">Make default</button>'}
+        <button data-act="rename">Rename</button>
+        <button data-act="delete" class="danger">Delete</button>
+      </div>`;
+    const audio = el.querySelector("audio");
+    audio.addEventListener("play", async function load1() {
+      audio.removeEventListener("play", load1);
+      try { const r = await api(`/voices/${v.id}/audio`); audio.src = URL.createObjectURL(await r.blob()); audio.play(); } catch (e) { toast(e.message); }
+    }, { once: true });
+    el.onclick = async (ev) => {
+      const act = ev.target.dataset.act; if (!act) return;
+      try {
+        if (act === "try") {
+          ev.target.disabled = true; ev.target.textContent = "Generating…";
+          const r = await api("/voices/preview", json({ text: $("tryText").value, language: $("tryLang").value, voice_id: v.id, speed: +$("trySpeed").value || 1 }));
+          audio.src = URL.createObjectURL(await r.blob()); audio.play();
+          ev.target.disabled = false; ev.target.textContent = "▶ Speak test sentence";
+        } else if (act === "default") { await api(`/voices/${v.id}`, json({ is_default: true }, "PATCH")); await load(); }
+        else if (act === "rename") {
+          const n = prompt("New name", v.name); if (n && n.trim()) { await api(`/voices/${v.id}`, json({ name: n.trim() }, "PATCH")); await load(); }
+        } else if (act === "delete") {
+          if (confirm(`Delete voice "${v.name}"? Any assignments using it will be cleared.`)) { await api(`/voices/${v.id}`, { method: "DELETE" }); await load(); }
+        }
+      } catch (e) { toast(e.message, 6000); await load(); }
+    };
+    host.appendChild(el);
+  }
+}
+
+/* ---------- assignments ---------- */
+function renderAssign() {
+  const tb = $("assign").querySelector("tbody"); tb.innerHTML = "";
+  const owners = [{ id: "*", kind: "all" }, ...state.owners];
+  for (const o of owners) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${o.id === "*" ? "<b>Everything</b>" : esc(o.id)} <span class="pill">${o.kind}</span></td>`;
+    for (const lang of Object.keys(LANGS)) {
+      const td = document.createElement("td"), sel = document.createElement("select");
+      sel.add(new Option(o.id === "*" ? "Library default" : "Use default", ""));
+      state.voices.forEach((v) => sel.add(new Option(v.name, v.id)));
+      sel.value = (state.assignments[`${o.id}:${lang}`] || {}).voice_id || "";
+      sel.onchange = async () => {
+        try { await api("/voices/assignments", json({ owner: o.id, language: lang, voice_id: sel.value || null }, "PUT")); toast("Saved."); await load(); }
+        catch (e) { toast(e.message, 6000); await load(); }
+      };
+      td.appendChild(sel); tr.appendChild(td);
+    }
+    tb.appendChild(tr);
+  }
+}
+
+async function load() {
+  try {
+    const d = await (await api("/voices")).json();
+    state = d; renderVoices(); renderAssign();
+    setStatus(`connected · ${d.voices.length} voice${d.voices.length === 1 ? "" : "s"}`, "ok");
+  } catch (e) {
+    if (e.status === 401) setStatus("enter the admin API key", "warn");
+    else setStatus(e.status === 503 ? "voice service offline" : "error: " + e.message, "bad");
+    if (e.status === 503) toast(e.message, 7000);
+  }
+}
+
+$("saveKey").onclick = () => { keyStore.set($("apiKey").value.trim()); load(); };
+$("apiKey").value = keyStore.get();
+["cLang", "dLang", "tryLang"].forEach((i) => fillLangSelect($(i)));
+$("dInstruct").value = instruct();
+load();
+</script>
+</body>
+</html>

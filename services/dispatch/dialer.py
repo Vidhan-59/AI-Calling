@@ -268,7 +268,7 @@ async def handle_call_status_callback(
     on. Not verified against a live Twilio webhook in this pass - no Twilio
     credentials are configured yet (see AUDIT.md) - so treat the exact status
     vocabulary as "written to the documented shape", the same caveat this
-    repo already applies to services/stt/deepgram.py and friends.
+    repo already applies to services/telephony/*.py.
     """
     call = (
         await session.scalars(

@@ -7,7 +7,12 @@
   "max_attempts": 2,
   "no_answer_outcome": "no_response_treated_as_decline",
   "no_answer_action": "Same outcome as a decline - replacement begins immediately.",
-  "required_facts": ["employee_name", "date", "time", "terminal"],
+  "required_facts": [
+    "employee_name",
+    "date",
+    "time",
+    "terminal"
+  ],
   "knowledge_base": [
     "NEVER reveal that a prediction model flagged this operator. Not directly, not by hint, not even if asked why they were called. If asked, say it is a routine pre-shift check - which is true, the system does call broadly.",
     "This is the most delicate of the five calls. Something may genuinely be wrong in this person's life. Lead with concern, not with the roster.",
@@ -23,186 +28,268 @@
       "tts_language": "en-IN",
       "transcription_language": "en-IN",
       "voice": "en-IN-Neural2-B",
-      "opening": "Hello {employee_name}, we would like to confirm - will you be attending your duty on {date} at {time} in {terminal}? Please answer yes or no.",
-      "attempt_2_opening": "Hello {employee_name}, if you can't make it we need to arrange a replacement in time. Please confirm - are you coming or not?",
-      "silence_reply": "It seems you're unable to respond right now. We'll treat this as unconfirmed and arrange a replacement if needed. Thank you!",
+      "opening": "Hi {employee_name}, this is ShiftEaze calling. You have a duty on {date} at {time}, at {terminal}. Just wanted to confirm, will you be coming in?",
+      "attempt_2_opening": "Hi {employee_name}, ShiftEaze again. Just a quick one about your duty on {date} at {time}. Will you be able to make it?",
+      "silence_reply": "Looks like we can't connect right now. I'll try you again a bit later. Thank you!",
       "branches": {
         "yes": {
           "description": "Operator confirms they will attend the shift.",
-          "keywords": ["yes", "I will come", "I'll attend"],
-          "reply": "Thank you, your attendance has been confirmed.",
+          "keywords": [
+            "yes",
+            "I will come",
+            "I'll attend"
+          ],
+          "reply": "Great, thank you! I've noted that down.",
           "outcome": "confirmed",
           "end_call": true
         },
         "no": {
           "description": "Operator says they will not attend / cannot come.",
-          "keywords": ["no", "can't come", "won't attend"],
-          "reply": "Please tell us the reason.",
+          "keywords": [
+            "no",
+            "can't come",
+            "won't attend"
+          ],
+          "reply": "No problem. Could you just tell me why you won't be able to make it?",
           "collect": "absence_reason",
-          "after_collect_reply": "Thank you, we'll arrange a replacement in time.",
+          "after_collect_reply": "Got it, thank you. We'll arrange cover in good time. Take care!",
           "outcome": "declined_replacement_initiated",
           "end_call": true
         },
         "tentative": {
           "description": "Operator is unsure, tentative, or says they will try.",
-          "keywords": ["not sure", "I'll try", "maybe"],
-          "reply": "Thank you. Since this isn't certain, we'll keep a replacement on standby just in case.",
+          "keywords": [
+            "not sure",
+            "I'll try",
+            "maybe"
+          ],
+          "reply": "Okay, no problem. We'll keep a backup ready just in case. Thank you!",
           "outcome": "tentative_replacement_on_standby",
           "end_call": true
         },
         "leave_filed": {
           "description": "Operator says leave has already been applied for or they are on leave.",
-          "keywords": ["I already applied for leave", "I'm on leave"],
-          "reply": "Thank you, we'll verify this against our records.",
+          "keywords": [
+            "I already applied for leave",
+            "I'm on leave"
+          ],
+          "reply": "Oh, okay. I'll have your leave checked in the records. Thank you!",
           "outcome": "leave_already_filed_verify",
           "end_call": true
         },
         "why_calling": {
           "description": "Operator asks why they are being called.",
-          "keywords": ["why are you calling", "I didn't ask for this"],
-          "reply": "This is a routine check ahead of your shift, not linked to any request. Will you be attending? Please answer yes or no.",
+          "keywords": [
+            "why are you calling",
+            "I didn't ask for this"
+          ],
+          "reply": "It's just a routine confirmation call before your duty, nothing more. So, will you be coming in?",
           "outcome": "awaiting_response",
           "end_call": false
         },
         "supervisor": {
           "description": "Operator wants to speak to a supervisor or a human.",
-          "keywords": ["talk to my supervisor", "connect me to a person"],
-          "reply": "I'll pass this on to your supervisor, {supervisor_name}, who will reach out to you. Thank you!",
+          "keywords": [
+            "talk to my supervisor",
+            "connect me to a person"
+          ],
+          "reply": "Sure, I'll let your supervisor know, and they'll get in touch with you. Thank you!",
           "outcome": "escalated_supervisor_notified",
           "end_call": true
         },
         "wrong_number": {
           "description": "Wrong number or the person is not the named operator.",
-          "keywords": ["wrong number", "this isn't {employee_name}", "who is this"],
-          "reply": "I'm sorry for the inconvenience. I'll correct this on our end. Thank you!",
+          "keywords": [
+            "wrong number",
+            "this isn't {employee_name}",
+            "who is this"
+          ],
+          "reply": "Oh, I'm sorry, I must have the wrong number. Apologies for the trouble. Thank you!",
           "outcome": "data_mismatch_flagged",
           "end_call": true
         }
-      }
+      },
+      "unclear_reprompt": "Sorry, I didn't quite catch that. Will you be coming in for your duty?",
+      "reason_reprompt": "Sure. Could you just tell me the reason you can't make it?",
+      "silence_checkin": "Hello? Can you hear me?"
     },
     "hi": {
       "language_name": "Hindi",
       "tts_language": "hi-IN",
       "transcription_language": "hi-IN",
       "voice": "hi-IN-Neural2-B",
-      "opening": "नमस्ते {employee_name}, हम यह पुष्टि करना चाहते हैं — क्या आप {date} को {time} बजे {terminal} में अपनी ड्यूटी पर आएंगे? कृपया 'हाँ' या 'नहीं' में उत्तर दें।",
-      "attempt_2_opening": "हेलो {employee_name} भाई, अगर नहीं आ सकते तो हमें रिप्लेसमेंट टाइम पे अरेंज करना पड़ेगा। कृपया बताओ — आ रहे हो या नहीं?",
-      "silence_reply": "ऐसा लगता है कि आप अभी उत्तर नहीं दे पा रहे हैं। हम इसे अपुष्ट मानकर ज़रूरत पड़ने पर रिप्लेसमेंट की व्यवस्था करेंगे। आपका धन्यवाद!",
+      "opening": "नमस्ते {employee_name} जी, मैं शिफ्टईज़ से बोल रही हूँ। {date} को {time} बजे {terminal} में आपकी ड्यूटी है। बस कन्फ़र्म करना था, आप आ रहे हैं ना?",
+      "attempt_2_opening": "नमस्ते {employee_name} जी, शिफ्टईज़ से दोबारा बोल रही हूँ। {date} को {time} बजे की ड्यूटी के लिए बस एक बार बता दीजिए, आप आ पाएंगे?",
+      "silence_reply": "लगता है अभी बात नहीं हो पा रही। मैं बाद में दोबारा कॉल कर लूँगी। धन्यवाद!",
       "branches": {
         "yes": {
           "description": "Operator confirms they will attend the shift.",
-          "keywords": ["हाँ", "जी हाँ", "आऊँगा", "आऊँगी"],
-          "reply": "धन्यवाद, आपकी उपस्थिति की पुष्टि कर दी गई है।",
+          "keywords": [
+            "हाँ",
+            "जी हाँ",
+            "आऊँगा",
+            "आऊँगी"
+          ],
+          "reply": "बहुत बढ़िया, धन्यवाद! मैंने नोट कर लिया है।",
           "outcome": "confirmed",
           "end_call": true
         },
         "no": {
           "description": "Operator says they will not attend / cannot come.",
-          "keywords": ["नहीं", "जी नहीं", "नहीं आ सकता"],
-          "reply": "कृपया कारण बताएं।",
+          "keywords": [
+            "नहीं",
+            "जी नहीं",
+            "नहीं आ सकता"
+          ],
+          "reply": "कोई बात नहीं। बस इतना बता दीजिए, किस वजह से नहीं आ पाएंगे?",
           "collect": "absence_reason",
-          "after_collect_reply": "धन्यवाद, हम समय पर रिप्लेसमेंट की व्यवस्था कर लेंगे।",
+          "after_collect_reply": "ठीक है, समझ गई। हम समय रहते किसी और का इंतज़ाम कर लेंगे। अपना ध्यान रखिए, धन्यवाद!",
           "outcome": "declined_replacement_initiated",
           "end_call": true
         },
         "tentative": {
           "description": "Operator is unsure, tentative, or says they will try.",
-          "keywords": ["पता नहीं", "कोशिश करूंगा", "शायद"],
-          "reply": "धन्यवाद। यह पक्का नहीं है, इसलिए हम एहतियात के तौर पर एक रिप्लेसमेंट तैयार रखेंगे।",
+          "keywords": [
+            "पता नहीं",
+            "कोशिश करूंगा",
+            "शायद"
+          ],
+          "reply": "ठीक है, कोई बात नहीं। एहतियात के लिए हम एक बैकअप तैयार रखेंगे। धन्यवाद!",
           "outcome": "tentative_replacement_on_standby",
           "end_call": true
         },
         "leave_filed": {
           "description": "Operator says leave has already been applied for or they are on leave.",
-          "keywords": ["मैंने छुट्टी के लिए अर्ज़ी दी है", "मैं छुट्टी पर हूं"],
-          "reply": "धन्यवाद, हम इसे अपने रिकॉर्ड में जांच लेंगे।",
+          "keywords": [
+            "मैंने छुट्टी के लिए अर्ज़ी दी है",
+            "मैं छुट्टी पर हूं"
+          ],
+          "reply": "अच्छा, ठीक है। मैं रिकॉर्ड में आपकी छुट्टी चेक करवा लेती हूँ। धन्यवाद!",
           "outcome": "leave_already_filed_verify",
           "end_call": true
         },
         "why_calling": {
           "description": "Operator asks why they are being called.",
-          "keywords": ["क्यों कॉल किया", "मैंने कुछ नहीं मांगा था"],
-          "reply": "यह आपकी ड्यूटी से पहले की एक सामान्य जांच है, यह किसी मांग से जुड़ी नहीं है। क्या आप आएंगे? कृपया 'हाँ' या 'नहीं' में उत्तर दें।",
+          "keywords": [
+            "क्यों कॉल किया",
+            "मैंने कुछ नहीं मांगा था"
+          ],
+          "reply": "जी, ये बस ड्यूटी से पहले की एक आम कन्फ़र्मेशन कॉल है, और कुछ नहीं। तो, आप आ रहे हैं ना?",
           "outcome": "awaiting_response",
           "end_call": false
         },
         "supervisor": {
           "description": "Operator wants to speak to a supervisor or a human.",
-          "keywords": ["मुझे सुपरवाइज़र से बात करनी है"],
-          "reply": "मैं यह बात आपके सुपरवाइज़र {supervisor_name} को बता दूंगा, वे आपसे संपर्क करेंगे। आपका धन्यवाद!",
+          "keywords": [
+            "मुझे सुपरवाइज़र से बात करनी है"
+          ],
+          "reply": "ठीक है, मैं आपके सुपरवाइज़र को बता देती हूँ, वो आपसे बात कर लेंगे। धन्यवाद!",
           "outcome": "escalated_supervisor_notified",
           "end_call": true
         },
         "wrong_number": {
           "description": "Wrong number or the person is not the named operator.",
-          "keywords": ["गलत नंबर है", "मैं {employee_name} नहीं हूं"],
-          "reply": "असुविधा के लिए क्षमा करें। मैं इसे अपनी तरफ से ठीक करवा दूंगा। आपका धन्यवाद!",
+          "keywords": [
+            "गलत नंबर है",
+            "मैं {employee_name} नहीं हूं"
+          ],
+          "reply": "ओह, माफ़ कीजिए, शायद गलत नंबर लग गया। परेशानी के लिए माफ़ी चाहती हूँ। धन्यवाद!",
           "outcome": "data_mismatch_flagged",
           "end_call": true
         }
-      }
+      },
+      "unclear_reprompt": "माफ़ कीजिए, ठीक से सुनाई नहीं दिया। आप ड्यूटी पर आ रहे हैं, या नहीं?",
+      "reason_reprompt": "जी, समझ गई। बस वजह बता दीजिए, किस कारण से नहीं आ पाएंगे?",
+      "silence_checkin": "हेलो? आप सुन पा रहे हैं?"
     },
     "gu": {
       "language_name": "Gujarati",
       "tts_language": "gu-IN",
       "transcription_language": "gu-IN",
       "voice": "gu-IN-Wavenet-B",
-      "opening": "નમસ્તે {employee_name}, અમે એ પુષ્ટિ કરવા માંગીએ છીએ — શું તમે {date} ના રોજ {time} વાગ્યે {terminal} મા તમારી ડ્યુટી પર આવશો? કૃપા કરી 'હા' અથવા 'ના' માં જવાબ આપો.",
-      "attempt_2_opening": "હેલો {employee_name} ભાઈ, જો ના આવી શકો તો અમારે રિપ્લેસમેન્ટ ટાઇમ પર ગોઠવવું પડશે. કૃપા કરી કહો — આવો છો કે નહીં?",
-      "silence_reply": "એવું લાગે છે કે તમે અત્યારે જવાબ આપી શકતા નથી. જરૂર પડ્યે અમે આને અપુષ્ટ ગણીને રિપ્લેસમેન્ટની વ્યવસ્થા કરીશું. તમારો આભાર!",
+      "opening": "નમસ્તે {employee_name}, હું શિફ્ટઈઝ માંથી બોલું છું. {date} ના રોજ {time} વાગ્યે {terminal} માં તમારી ડ્યુટી છે. બસ કન્ફર્મ કરવું હતું, તમે આવો છો ને?",
+      "attempt_2_opening": "નમસ્તે {employee_name}, શિફ્ટઈઝ માંથી ફરી બોલું છું. {date} ના {time} વાગ્યાની ડ્યુટી માટે બસ એક વાર કહી દો, તમે આવી શકશો?",
+      "silence_reply": "લાગે છે અત્યારે વાત નથી થઈ શકતી. હું થોડી વાર પછી ફરી ફોન કરીશ. આભાર!",
       "branches": {
         "yes": {
           "description": "Operator confirms they will attend the shift.",
-          "keywords": ["હા", "જી હા", "આવીશ", "આવીશું"],
-          "reply": "આભાર, તમારી હાજરીની પુષ્ટિ કરી લેવામાં આવી છે.",
+          "keywords": [
+            "હા",
+            "જી હા",
+            "આવીશ",
+            "આવીશું"
+          ],
+          "reply": "સરસ, આભાર! મેં નોંધ કરી લીધી છે.",
           "outcome": "confirmed",
           "end_call": true
         },
         "no": {
           "description": "Operator says they will not attend / cannot come.",
-          "keywords": ["ના", "નહીં", "નહીં આવી શકું"],
-          "reply": "કૃપા કરી કારણ જણાવો.",
+          "keywords": [
+            "ના",
+            "નહીં",
+            "નહીં આવી શકું"
+          ],
+          "reply": "કંઈ વાંધો નહીં. બસ એટલું કહી દો, કયા કારણે નહીં આવી શકો?",
           "collect": "absence_reason",
-          "after_collect_reply": "આભાર, અમે સમયસર રિપ્લેસમેન્ટની વ્યવસ્થા કરી લઈશું.",
+          "after_collect_reply": "બરાબર, સમજી ગઈ. અમે સમયસર બીજી વ્યવસ્થા કરી લઈશું. તમારું ધ્યાન રાખજો, આભાર!",
           "outcome": "declined_replacement_initiated",
           "end_call": true
         },
         "tentative": {
           "description": "Operator is unsure, tentative, or says they will try.",
-          "keywords": ["ખબર નથી", "પ્રયત્ન કરીશ", "કદાચ"],
-          "reply": "આભાર. આ નક્કી નથી, એટલે અમે સાવચેતી માટે એક રિપ્લેસમેન્ટ તૈયાર રાખીશું.",
+          "keywords": [
+            "ખબર નથી",
+            "પ્રયત્ન કરીશ",
+            "કદાચ"
+          ],
+          "reply": "સારું, કંઈ વાંધો નહીં. સાવચેતી માટે અમે એક બેકઅપ તૈયાર રાખીશું. આભાર!",
           "outcome": "tentative_replacement_on_standby",
           "end_call": true
         },
         "leave_filed": {
           "description": "Operator says leave has already been applied for or they are on leave.",
-          "keywords": ["મેં રજા માટે અરજી કરી છે", "હું રજા પર છું"],
-          "reply": "આભાર, અમે આ અમારા રેકોર્ડમાં ચકાસી લઈશું.",
+          "keywords": [
+            "મેં રજા માટે અરજી કરી છે",
+            "હું રજા પર છું"
+          ],
+          "reply": "સારું, બરાબર. હું રેકોર્ડમાં તમારી રજા ચેક કરાવી લઉં છું. આભાર!",
           "outcome": "leave_already_filed_verify",
           "end_call": true
         },
         "why_calling": {
           "description": "Operator asks why they are being called.",
-          "keywords": ["શા માટે કૉલ કર્યો", "મેં કંઈ માંગ્યું નહોતું"],
-          "reply": "આ તમારી ડ્યુટી પહેલાની એક સામાન્ય ચકાસણી છે, આ કોઈ માંગ સાથે જોડાયેલી નથી. શું તમે આવશો? કૃપા કરી 'હા' અથવા 'ના' માં જવાબ આપો.",
+          "keywords": [
+            "શા માટે કૉલ કર્યો",
+            "મેં કંઈ માંગ્યું નહોતું"
+          ],
+          "reply": "આ તો બસ ડ્યુટી પહેલાંનો એક સામાન્ય કન્ફર્મેશન કૉલ છે, બીજું કંઈ નહીં. તો, તમે આવો છો ને?",
           "outcome": "awaiting_response",
           "end_call": false
         },
         "supervisor": {
           "description": "Operator wants to speak to a supervisor or a human.",
-          "keywords": ["મારે સુપરવાઇઝર સાથે વાત કરવી છે"],
-          "reply": "હું આ વાત તમારા સુપરવાઇઝર {supervisor_name} ને જણાવીશ, તેઓ તમારો સંપર્ક કરશે. તમારો આભાર!",
+          "keywords": [
+            "મારે સુપરવાઇઝર સાથે વાત કરવી છે"
+          ],
+          "reply": "બરાબર, હું તમારા સુપરવાઇઝરને જણાવી દઉં છું, તેઓ તમારી સાથે વાત કરશે. આભાર!",
           "outcome": "escalated_supervisor_notified",
           "end_call": true
         },
         "wrong_number": {
           "description": "Wrong number or the person is not the named operator.",
-          "keywords": ["ખોટો નંબર છે", "હું {employee_name} નથી"],
-          "reply": "અગવડ બદલ માફ કરશો. હું આ અમારા તરફથી સુધારી લઈશ. તમારો આભાર!",
+          "keywords": [
+            "ખોટો નંબર છે",
+            "હું {employee_name} નથી"
+          ],
+          "reply": "ઓહ, માફ કરજો, કદાચ ખોટો નંબર લાગી ગયો. તકલીફ બદલ માફી. આભાર!",
           "outcome": "data_mismatch_flagged",
           "end_call": true
         }
-      }
+      },
+      "unclear_reprompt": "માફ કરજો, બરાબર સંભળાયું નહીં. તમે ડ્યુટી પર આવો છો કે નહીં?",
+      "reason_reprompt": "હા, સમજી ગઈ. બસ કારણ કહી દો, કેમ નહીં આવી શકો?",
+      "silence_checkin": "હેલો? તમને સંભળાય છે?"
     }
   }
 }

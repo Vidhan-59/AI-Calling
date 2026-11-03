@@ -118,7 +118,11 @@ async def test_real_tool_call_round_trips_and_sets_roster_available(session):
     )
 
     flow_graph = agent_registry.get_flow_graph("shift_confirm")
-    state = SlotState(current_node_id="state_shift")
+    # turn_count=1: this fixture represents a turn after the opening greeting
+    # (history already has a caller reply) - turn_count=0 would make run_turn
+    # treat it as the call's first turn and check for the disclose_ai_and_
+    # recording opening line, which is unrelated to what this test covers.
+    state = SlotState(current_node_id="state_shift", turn_count=1)
     llm = FakeLLM(
         [
             _turn_result(

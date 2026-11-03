@@ -1128,7 +1128,8 @@ tags in your response... no labels, no markdown, no stage directions."*
 | `TELEPHONY_PROVIDER` | `mock` | dialer only (§5) |
 | `TWILIO_*` | — | Track A/B direct calls, `twilio_provider.py` |
 | `EXOTEL_*`, `PLIVO_*` | — | unverified alt telephony providers |
-| `STT_PROVIDER` / `TTS_PROVIDER` | `mock` | unwired (§5) |
+| `USE_SARVAM_STT` | `true` | `true` = Sarvam cloud STT, `false` = local faster-whisper |
+| `TTS_SERVICE_URL` / `TTS_SERVICE_TOKEN` | `http://127.0.0.1:8100` / empty | OmniVoice TTS service (`tts_service/`) |
 | `SARVAM_API_KEY` / `DEEPGRAM_API_KEY` / `ELEVENLABS_API_KEY` / `AZURE_SPEECH_*` | — | unwired provider modules |
 | `ODOO_WEBHOOK_URL` / `ODOO_WEBHOOK_HMAC_SECRET` | — / `change_me_in_production` | `services/integrations/odoo_client.py` |
 | `SMS_PROVIDER` | `mock` | `comms_tools.send_sms_fallback` |

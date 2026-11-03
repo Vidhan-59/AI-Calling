@@ -26,11 +26,21 @@ import os
 from fastapi import APIRouter, WebSocket
 from fastapi.websockets import WebSocketDisconnect
 
-from services import claude_client, conversation_store, scenario_engine, scenario_store
+from services import call_analysis, claude_client, conversation_store, scenario_engine, scenario_store
 from services.call_logger import init_call_log, log_turn, finalize_call_log
 
 logger = logging.getLogger("voice_scenario")
 router = APIRouter()
+
+
+@router.websocket("/scenarios/media")
+async def scenario_media(websocket: WebSocket):
+    """Raw Twilio Media Streams entrypoint for scenario calls - STT + OmniVoice TTS
+    pipeline (SCENARIO_VOICE_TRANSPORT=media, the default). The handler
+    below is the ConversationRelay path, kept for SCENARIO_VOICE_TRANSPORT=relay."""
+    from services.voice_pipeline.scenario_pipeline import run_scenario_media_pipeline
+
+    await run_scenario_media_pipeline(websocket)
 
 
 @router.websocket("/scenarios/media-stream")
@@ -254,6 +264,8 @@ async def scenario_media_stream(websocket: WebSocket):
                             else None
                         ),
                     )
+                    if call_analysis.store_details(call_sid):
+                        call_analysis.schedule_analysis(call_sid)
                     await hang_up(result.outcome)
                 # else: call stays open. ConversationRelay will listen for
                 # the next operator utterance and send another "prompt" message.
@@ -298,3 +310,5 @@ async def scenario_media_stream(websocket: WebSocket):
                 outcome=fallback,
                 collected=session.collected if session else None,
             )
+            if call_analysis.store_details(call_sid):
+                call_analysis.schedule_analysis(call_sid)

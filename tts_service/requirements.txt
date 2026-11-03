@@ -1,0 +1,18 @@
+# OmniVoice TTS service - its own virtualenv (tts_service/.venv), separate from
+# the main app's venv. Install torch FIRST, from the index matching your GPU:
+#
+#   NVIDIA (incl. RTX 50xx / Blackwell, needs CUDA 12.8 wheels):
+#     pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu128
+#   CPU only (works, but far too slow for live calls):
+#     pip install torch torchaudio
+#
+# then:  pip install -r tts_service/requirements.txt
+omnivoice
+fastapi
+uvicorn[standard]
+python-multipart
+scipy
+soundfile
+numpy
+httpx
+pytest

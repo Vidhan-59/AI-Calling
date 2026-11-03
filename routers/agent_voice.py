@@ -1,30 +1,30 @@
-"""Twilio ConversationRelay entrypoint for the rebuild's conversation_agent
-(flow graph + tool registry + guardrails) - the piece that makes
-services/agents/conversation_agent.py reachable from a real call for the
-first time. Before this file existed, that module only ran inside tests
-(see AUDIT.md).
+"""Live-call entrypoints for the rebuild's conversation_agent (flow graph +
+tool registry + guardrails) - the piece that makes
+services/agents/conversation_agent.py reachable from a real call. Before
+this file existed, that module only ran inside tests (see AUDIT.md).
 
-Reuses the exact ConversationRelay text-in/text-out contract already proven
-in routers/voice.py and routers/voice_scenario.py (setup/prompt/interrupt/
-error in; {"type":"text",...} / {"type":"end",...} out) rather than adopting
-Pipecat or a raw media-stream pipeline - see PHASE2_ARCHITECTURE_PROPOSAL.md
-for that trade-off. Not exercised against a real Twilio call in this pass -
-no Twilio credentials are configured on this machine yet (see AUDIT.md) - so
-treat the exact TwiML attribute names the same way this repo already treats
-services/stt/sarvam.py etc.: written to the documented shape, not smoke
-tested against a live call.
+Two live-call paths exist here:
 
-Bootstrap-greeting design decision (new - no prior art elsewhere in this
-repo to copy): unlike the scripted ShiftEaze scenarios, this agent's opening
-line is LLM-generated from the flow graph's entry node objective, not a
-fixed string, so there's no template to render before the call connects the
-way scenario_engine.opening_line() does. TwiML still needs a
-`welcomeGreeting` string up front, so `agent_voice_twiml` runs one run_turn()
-call against a synthetic bootstrap message (CALL_CONNECTED_SENTINEL) to get
-that line, and the WebSocket handler re-runs the same call on "setup" so the
-model's own turn history matches what the caller actually heard (see the
-comment at that call site for why it's re-run rather than threaded through
-TwiML).
+- `/agent-voice/media` (current, primary): raw Twilio Media Streams, run
+  through the self-hosted Pipecat pipeline in services/voice_pipeline/ -
+  Qwen (via Ollama, GPU) for the LLM, STT per USE_SARVAM_STT (Sarvam or faster-whisper), OmniVoice for TTS.
+  No Claude, no Twilio-hosted STT/TTS. See services/voice_pipeline/
+  twilio_pipeline.py for the pipeline assembly and
+  PHASE2_ARCHITECTURE_PROPOSAL.md's "revisit when audio-level control is
+  needed" note - this is that revisit.
+- `/agent-voice/media-stream` (retired, kept as a rollback path, not wired
+  to any TwiML anymore): the original Twilio ConversationRelay text-in/
+  text-out contract (setup/prompt/interrupt/error in;
+  {"type":"text",...}/{"type":"end",...} out), same shape routers/voice.py
+  and routers/voice_scenario.py still use for Track A/B.
+
+Not exercised against a real Twilio call in this pass - no Twilio
+credentials are configured against a live number yet (see AUDIT.md) - so
+treat the exact wire-format details the same way this repo already treats
+services/telephony/*.py etc.: written to the documented protocol shape, not
+smoke tested against a live call. See
+tests/integration/test_voice_pipeline_harness.py for what CAN be verified
+locally without Twilio.
 
 Multi-agent handoff (decision="handoff") is not implemented yet - flagged and
 ended gracefully rather than silently mishandled. See "known limitations" in
@@ -35,7 +35,6 @@ import asyncio
 import json
 import logging
 import time
-from xml.sax.saxutils import quoteattr
 
 from fastapi import APIRouter, HTTPException, Request, WebSocket
 from fastapi.responses import HTMLResponse
@@ -44,17 +43,18 @@ from pydantic import BaseModel
 from sqlalchemy import select
 
 import models
+from config import settings
 from db import get_session_factory, now as db_now, session_scope
 from services import agent_registry, llm_router
-from services.agents.conversation_agent import run_turn
+from services.agents.conversation_agent import CALL_CONNECTED_SENTINEL, run_turn
 from services.dispatch.dialer import mark_call_ended
 from services.flow.slots import SlotState
 from services.pipeline.chunker import split_sentences
+from services.telephony.registry import get_telephony_provider
+from services.voice_pipeline.twilio_pipeline import run_twilio_media_pipeline
 
 logger = logging.getLogger("agent_voice")
 router = APIRouter(tags=["agent-voice"])
-
-CALL_CONNECTED_SENTINEL = "[CALL_CONNECTED]"
 
 _ERROR_TWIML = (
     '<?xml version="1.0" encoding="UTF-8"?>'
@@ -95,10 +95,19 @@ async def _load_call_context(task_id: str) -> dict | None:
 
 @router.api_route("/agent-voice/twiml", methods=["GET", "POST"])
 async def agent_voice_twiml(request: Request):
-    """Twilio webhook: returns TwiML connecting the call to ConversationRelay.
-    `task_id` (a CallTask id) is how this endpoint knows which contact/agent/
-    campaign this call is for - see services/dispatch/dialer.run_dispatch_cycle,
-    which is the only code that should ever be building this URL."""
+    """Twilio webhook: returns TwiML connecting the call to the self-hosted
+    Pipecat media pipeline (services/voice_pipeline/) over raw Twilio Media
+    Streams. `task_id` (a CallTask id) is how this endpoint knows which
+    contact/agent/campaign this call is for - see
+    services/dispatch/dialer.run_dispatch_cycle, which is the only code that
+    should ever be building this URL.
+
+    Unlike the retired ConversationRelay TwiML this replaced, no run_turn()
+    call happens here: there's no `welcomeGreeting` attribute to fill in for
+    a raw <Stream> - the pipeline generates and speaks its own opening line
+    once the media WebSocket connects (see
+    ConversationAgentProcessor._bootstrap_greeting), so this endpoint only
+    needs to validate the task exists and hand back TwiML."""
     task_id = request.query_params.get("task_id")
     if not task_id:
         return HTMLResponse(_ERROR_TWIML, media_type="application/xml")
@@ -109,41 +118,29 @@ async def agent_voice_twiml(request: Request):
         return HTMLResponse(_ERROR_TWIML, media_type="application/xml")
 
     try:
-        config = agent_registry.get_agent_config(ctx["agent_id"])
-        flow_graph = agent_registry.get_flow_graph(ctx["agent_id"])
+        agent_registry.get_agent_config(ctx["agent_id"])
+        agent_registry.get_flow_graph(ctx["agent_id"])
     except Exception as e:  # noqa: BLE001 - a bad/missing config must fail this call, not crash the server
         logger.error("[%s] could not load agent config/flow for agent_id=%s: %s", task_id, ctx["agent_id"], e)
         return HTMLResponse(_ERROR_TWIML, media_type="application/xml")
 
-    voice_cfg = config.voice.get(ctx["language"]) or next(iter(config.voice.values()))
-
-    slot_state = SlotState(current_node_id=flow_graph.entry)
-    async with session_scope() as session:
-        outcome = await run_turn(
-            session=session,
-            call_id=f"pending:{task_id}",
-            agent_id=ctx["agent_id"],
-            flow_graph=flow_graph,
-            slot_state=slot_state,
-            contact=ctx["contact"],
-            language=ctx["language"],
-            history=[{"role": "user", "content": CALL_CONNECTED_SENTINEL}],
+    provider = get_telephony_provider()
+    if not hasattr(provider, "build_stream_connect_response"):
+        # services/voice_pipeline/ is written against Twilio's Media Streams
+        # wire format specifically (TwilioFrameSerializer, not a generic
+        # abstraction) - Exotel/Plivo would need their own pipecat
+        # serializer/pipeline before this endpoint could support them too.
+        logger.error(
+            "TELEPHONY_PROVIDER=%s does not support the Pipecat media pipeline (Twilio-only for now)",
+            settings.telephony_provider,
         )
-    greeting = outcome.text_to_speak or "Namaste."
+        return HTMLResponse(_ERROR_TWIML, media_type="application/xml")
 
-    ws_url = f"wss://{request.url.hostname}/agent-voice/media-stream"
-    twiml = (
-        '<?xml version="1.0" encoding="UTF-8"?>'
-        "<Response><Connect>"
-        f"<ConversationRelay url={quoteattr(ws_url)} "
-        f"welcomeGreeting={quoteattr(greeting)} "
-        f'ttsProvider="Google" voice={quoteattr(voice_cfg.voice_id)} '
-        'interruptible="true" debug="true">'
-        f'<Parameter name="taskId" value={quoteattr(task_id)}/>'
-        "</ConversationRelay>"
-        "</Connect></Response>"
+    ws_url = f"wss://{request.url.hostname}/agent-voice/media"
+    twiml, content_type = provider.build_stream_connect_response(
+        media_ws_url=ws_url, custom_params={"taskId": task_id}
     )
-    return HTMLResponse(content=twiml, media_type="application/xml")
+    return HTMLResponse(content=twiml, media_type=content_type)
 
 
 @router.post("/agent-voice/preview")
@@ -211,6 +208,15 @@ async def agent_voice_preview(payload: PreviewRequest):
             await session.rollback()
 
     return {"agent_id": payload.agent_id, "slots_filled": slot_state.filled, "turns": turns}
+
+
+@router.websocket("/agent-voice/media")
+async def agent_voice_media(websocket: WebSocket):
+    """Raw Twilio Media Streams entrypoint - what agent_voice_twiml's
+    <Connect><Stream> now points at. All the actual work (handshake, call
+    context, pipeline assembly, run) lives in
+    services/voice_pipeline/twilio_pipeline.py; this is deliberately thin."""
+    await run_twilio_media_pipeline(websocket)
 
 
 @router.websocket("/agent-voice/media-stream")
@@ -421,6 +427,9 @@ async def agent_voice_media_stream(websocket: WebSocket):
             await _finalize_call(call_id, task_id, "call_dropped", slot_state, status="disconnected")
 
 
+_TERMINAL_CALL_STATUSES = ("completed", "disconnected")
+
+
 async def _finalize_call(
     call_id: str | None,
     task_id: str | None,
@@ -432,6 +441,14 @@ async def _finalize_call(
     if call_id:
         async with session_scope() as session:
             call_row = await session.get(models.Call, call_id)
+            if call_row is not None and call_row.status in _TERMINAL_CALL_STATUSES:
+                # Already finalized (e.g. the "prompt" handler's end_call/
+                # transfer_to_human path ran, then the websocket's `finally`
+                # block also fired on disconnect) - skip re-finalizing so we
+                # don't write a second CallOutcome row or double-decrement
+                # the concurrency counter via mark_call_ended() below.
+                logger.info("[%s] _finalize_call called again on an already-terminal call - skipping", call_id)
+                return
             if call_row is not None:
                 call_row.status = status
                 call_row.hangup_by = "agent" if status == "completed" else "system"

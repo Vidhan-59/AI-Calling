@@ -22,7 +22,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from config import BASE_DIR
+from config import BASE_DIR, settings
 from services import claude_client
 
 logger = logging.getLogger("scenario_engine")
@@ -37,6 +37,10 @@ MAX_REPROMPTS_PER_ATTEMPT = 2
 
 # Max total conversational turns before force-ending (safety cap for runaway loops).
 MAX_TOTAL_TURNS = 10
+# After a "no" the agent asks why, then re-asks up to this many times if the
+# answer has no reason in it (a dangling "nahi aa paunga", a pause-split
+# fragment). Then it records what it has - it can never loop forever.
+MAX_REASON_REASKS = 2
 
 _cache: dict[str, dict] = {}
 
@@ -166,7 +170,14 @@ def missing_facts(scenario_id: str, facts: dict[str, Any]) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def _classification_schema(branch_keys: list[str], collects_reason: bool) -> dict:
+def _classification_schema(branch_keys: list[str], collects_reason: bool, lean: bool = False) -> dict:
+    """`lean=True` is the local-model (Qwen) schema: only the fields that
+    drive a decision. Measured 2026-09-30 on qwen2.5:7b-instruct: with the
+    free-text `rationale` field the model writes essays until it hits the
+    token cap - 400 tokens, ~17s, and the JSON gets truncated mid-string
+    (the "Unterminated string ... line 5" error live calls hit). Without it:
+    ~50 tokens, ~2s, valid every time. detected_language is dropped too -
+    it's analytics only, and the call's own language is used instead."""
     properties: dict[str, Any] = {
         "branch": {
             "type": "string",
@@ -178,21 +189,38 @@ def _classification_schema(branch_keys: list[str], collects_reason: bool) -> dic
                 "operator phrased it unusually."
             ),
         },
-        "confidence": {
-            "type": "number",
-            "description": "0.0 to 1.0 confidence in the chosen branch.",
-        },
-        "detected_language": {
-            "type": "string",
-            "enum": ["en", "hi", "gu", "mixed", "unknown"],
-            "description": "Language the operator actually spoke in.",
-        },
-        "rationale": {
-            "type": "string",
-            "description": "One short sentence explaining the choice, in English, for the audit log.",
-        },
     }
-    required = ["branch", "confidence", "detected_language", "rationale"]
+    required = ["branch"]
+    if lean:
+        # Only a boolean for the reason, never the reason text: having the
+        # model re-type the caller's words cost ~25 Devanagari tokens (~0.8s)
+        # and is how it produced a fake "reason" from the opening's own date
+        # phrase on a Gujarati call. The caller's utterance is saved verbatim
+        # instead (see classify_utterance). Measured: ~16 output tokens, 0.4-0.7s.
+        if collects_reason:
+            properties["gave_reason"] = {
+                "type": "boolean",
+                "description": (
+                    "True only if the operator stated WHY they cannot attend in this "
+                    "same utterance (e.g. illness, family emergency). A bare refusal "
+                    "('nahi aa paunga') is false."
+                ),
+            }
+            required.append("gave_reason")
+        return {"type": "object", "properties": properties, "required": required, "additionalProperties": False}
+
+    properties["confidence"] = {"type": "number", "description": "0.0 to 1.0 confidence in the chosen branch."}
+    required.append("confidence")
+    properties["detected_language"] = {
+        "type": "string",
+        "enum": ["en", "hi", "gu", "mixed", "unknown"],
+        "description": "Language the operator actually spoke in.",
+    }
+    properties["rationale"] = {
+        "type": "string",
+        "description": "One short sentence explaining the choice, in English, for the audit log.",
+    }
+    required += ["detected_language", "rationale"]
 
     if collects_reason:
         # Plain string with "" for absent rather than a nullable union - keeps
@@ -200,9 +228,10 @@ def _classification_schema(branch_keys: list[str], collects_reason: bool) -> dic
         properties["volunteered_reason"] = {
             "type": "string",
             "description": (
-                "If the operator already gave a reason for not attending in this same "
-                "utterance (e.g. 'no, my wife is in hospital'), the reason verbatim. "
-                "Otherwise an empty string."
+                "ONLY the cause of the absence, if the operator stated one in this same "
+                "utterance - e.g. for 'no, my wife is in hospital' return 'my wife is in "
+                "hospital'. A restatement of the refusal ('I can't come', 'nahi aa "
+                "paunga') is NOT a reason - return an empty string for it."
             ),
         }
         required.append("volunteered_reason")
@@ -228,6 +257,11 @@ def _build_classifier_prompt(
     like 'haan' (yes) after the agent asked 'can you come?', versus after the
     agent asked 'please tell us the reason'.
     """
+    # Order matters for latency: everything that is the same for every call of
+    # this scenario+language comes first, per-call content (facts, history)
+    # last. Ollama reuses the KV cache for an identical prompt prefix, so this
+    # layout lets ~1000 tokens be cached across calls instead of re-processed
+    # (measured: 870-930ms prompt eval uncached vs ~60-100ms cached).
     lines = [
         "You classify what a port equipment operator said during an automated "
         "ShiftEaze workforce phone call, onto exactly one scripted branch.",
@@ -235,20 +269,7 @@ def _build_classifier_prompt(
         f"CALL TYPE: {scenario['display_name']} ({scenario.get('trigger', '')})",
         f"LANGUAGE THE AGENT SPOKE: {lang_cfg.get('language_name')}",
         "",
-        "THE INITIAL QUESTION:",
-        render(lang_cfg["opening"], facts),
-        "",
     ]
-
-    # Add conversation history for multi-turn context
-    if conversation_history:
-        lines.append("CONVERSATION SO FAR (most recent last):")
-        for turn in conversation_history[-6:]:  # last 6 turns max
-            role_label = "AGENT" if turn["role"] == "assistant" else "OPERATOR"
-            lines.append(f"  {role_label}: {turn['content']}")
-        lines.append("")
-        lines.append("THE OPERATOR'S LATEST UTTERANCE IS WHAT YOU MUST CLASSIFY.")
-        lines.append("")
 
     lines.append("AVAILABLE BRANCHES:")
     for key, branch in lang_cfg["branches"].items():
@@ -265,6 +286,12 @@ def _build_classifier_prompt(
         "- The example phrasings are hints, NOT a required match. A paraphrase, a "
         "regional variant, or an answer wrapped in extra words still maps to its branch.",
         "- Watch negation carefully: 'haan nahi aa paunga' means NO, not yes.",
+        "- A correction reverses it: 'nahi nahi, main aa jaunga' ('no no, I will come') "
+        "means YES - the operator is correcting a misunderstanding, not refusing.",
+        "- A refusal followed by a personal reason ('na, mari tabiyat sari nathi' / "
+        "'nahi, tabiyat kharab hai' - no, my health is not good) is a NO with a reason. "
+        "'dispute' is ONLY when the operator says the shift details themselves are "
+        "wrong or not theirs ('yeh meri duty nahi hai').",
         "- If the operator answers the question AND adds context, classify on the answer.",
         "- Pick exactly one branch. Never invent a branch that is not listed.",
         "- IMPORTANT: Gujarati speech may be transcribed through a Hindi speech model, "
@@ -276,7 +303,19 @@ def _build_classifier_prompt(
         "a 'no'), and the operator is now giving a reason, that is NOT a new 'no' - "
         "it is the reason being collected. In that case classify as 'unclear' so the "
         "collection flow captures it verbatim.",
+        "",
+        "THE INITIAL QUESTION:",
+        render(lang_cfg["opening"], facts),
+        "",
     ]
+
+    if conversation_history:
+        lines.append("CONVERSATION SO FAR (most recent last):")
+        for turn in conversation_history[-6:]:
+            role_label = "AGENT" if turn["role"] == "assistant" else "OPERATOR"
+            lines.append(f"  {role_label}: {turn['content']}")
+        lines.append("")
+    lines.append("THE OPERATOR'S LATEST UTTERANCE (the user message) IS WHAT YOU MUST CLASSIFY.")
     return "\n".join(lines)
 
 
@@ -287,6 +326,187 @@ class Classification:
     detected_language: str
     rationale: str
     volunteered_reason: Optional[str] = None
+    source: str = "llm"  # "fast" (keyword fast path) | "llm"
+
+
+# ---------------------------------------------------------------------------
+# Fast path: plain yes/no answers, classified by keyword with no LLM call
+# ---------------------------------------------------------------------------
+# Most real answers to "aa rahe hain?" are two or three words ("haan ji",
+# "nahi aa paunga"). Sending those to the LLM costs ~1-2s of dead air for no
+# gain. Anything this can't classify with certainty - an unknown word, both
+# polarities at once ("haan nahi aa paunga"), a question, a reason - falls
+# through to the LLM, so the fast path can only ever be skipped, never wrong
+# in a way the LLM would have caught.
+
+# Apostrophes are kept so "can't" stays one token (curly ones are normalized first).
+_PUNCT_RE = re.compile(r"[।॥,.!?;:\"()\[\]\-–—…]+")
+
+# Devanagari "ना" is deliberately absent: in Hindi it is also a tag particle
+# ("aa raha hoon na") that means the opposite. Gujarati "ના" is unambiguous.
+_NEG = {
+    "नहीं", "नही", "नहि", "नई", "मत", "नो",
+    "nahi", "nahin", "nahee", "nai", "no", "nope", "not", "cannot", "can't", "cant", "won't", "wont",
+    "નહીં", "નહિ", "ના", "નથી", "nathi",
+}
+_AFF = {
+    "हाँ", "हां", "हा", "हाँजी", "हांजी", "ठीक", "बिल्कुल", "बिलकुल", "पक्का", "ज़रूर", "जरूर", "यस", "ओके",
+    "haan", "han", "haa", "ha", "haanji", "hanji", "yes", "yeah", "yep", "ok", "okay", "sure",
+    "theek", "thik", "bilkul", "pakka", "zaroor", "jarur",
+    "હા", "હાં", "બરાબર", "ચોક્કસ",
+}
+# Attendance verbs: affirmative alone ("aa jaunga"), negated when a refusal
+# word is in scope ("nahi aaunga").
+_ATTEND = {
+    "आऊँगा", "आऊंगा", "आऊँगी", "आऊंगी", "जाऊँगा", "जाऊंगा", "जाऊँगी", "जाऊंगी", "आएंगे", "आएँगे",
+    "आऊँ", "आऊं", "जाऊँ", "जाऊं", "आएगा", "आएगी", "आता", "आती", "आते",
+    "रहा", "रही", "रहे", "पहुंचूंगा", "पहुँचूँगा", "पहुंचूंगी", "पहुँचूँगी",
+    "aaunga", "aaungi", "aunga", "jaunga", "jaungi", "aata", "aati", "raha", "rahi",
+    "coming", "come", "attend", "make",
+    "આવીશ", "આવીશું", "આવું", "આવુ", "આવી", "આવતો", "આવતી", "આવતા", "આવશે", "આવવાનો", "આવવાની",
+    "પહોંચીશ", "aavish", "aavu", "aavto",
+}
+# Auxiliaries that keep a preceding refusal in scope: "nahi [aa paunga]".
+_SCOPE_KEEP = {
+    "आ", "पाऊँगा", "पाऊंगा", "पाऊँगी", "पाऊंगी", "सकता", "सकती", "सकूंगा", "सकूँगा",
+    "पाऊँ", "पाऊं", "सकूंगी", "सकूँगी", "पाएगा", "पाएगी",
+    "a", "aa", "paunga", "paaunga", "paungi", "sakta", "sakti", "be", "able", "to",
+    "શકું", "શકીશ", "શકીશું",
+}
+# "can / be able to": after an attendance verb these mean "I can('t) come", so
+# a doubled refusal with one of them is a REFUSAL, not a "no no, I'll come"
+# correction (see fast_classify).
+_CAN = {
+    "पाऊँगा", "पाऊंगा", "पाऊँगी", "पाऊंगी", "सकता", "सकती", "सकूंगा", "सकूँगा", "पाऊँ", "पाऊं",
+    "सकूंगी", "सकूँगी", "पाएगा", "पाएगी", "paunga", "paaunga", "paungi", "sakta", "sakti", "able",
+    "શકું", "શકીશ", "શકીશું",
+}
+# No yes/no meaning; also end a refusal's scope ("nahi nahi, [main] aa jaunga").
+_NEUTRAL = {
+    "जी", "मैं", "में", "हूँ", "हूं", "है", "हैं", "तो", "भी", "कल", "आज", "पर", "पे", "ड्यूटी", "शिफ्ट",
+    "भाई", "सर", "साहब", "मैडम", "ना", "हम", "ही", "यार", "सॉरी", "माफ़", "माफ", "कीजिए", "कीजिये", "सच", "देखिए", "देखिये", "देखो",
+    "ji", "main", "mai", "mein", "hoon", "hu", "hai", "bhi", "kal", "aaj", "par", "pe", "duty", "shift",
+    "bhai", "sir", "madam", "na", "i", "am", "i'm", "im", "will", "tomorrow", "today", "the", "it", "i'll", "ill",
+    "yaar", "yar", "sorry", "maaf", "kijiye", "dekhiye", "dekho",
+    "હું", "છું", "છે", "કાલે", "આજે", "જી", "ભાઈ", "સાહેબ", "ડ્યુટી", "શિફ્ટ", "રોજ", "ને", "માફ", "કરજો", "છો", "હતો", "તો",
+}
+_FILLER = _NEG | _AFF | _ATTEND | _SCOPE_KEEP | _NEUTRAL
+_FAST_PATH_MAX_WORDS = 6
+
+
+def _tokens(text: str) -> list[str]:
+    text = (text or "").lower().replace("’", "'").replace("‘", "'")
+    return [t.strip("'") for t in _PUNCT_RE.sub(" ", text).split() if t.strip("'")]
+
+
+def fast_classify(utterance: str, branch_keys: list[str]) -> str | None:
+    """A branch key for a short, unambiguous answer; None means "ask the
+    LLM". yes/no scenarios get "yes"/"no"; reminder scenarios (an
+    "acknowledged" branch, no yes/no) get "acknowledged" for a plain
+    "theek hai" - anything negative there needs the LLM to pick between
+    already_punched / technical_issue / still_working."""
+    has_yes_no = "yes" in branch_keys and "no" in branch_keys
+    if not has_yes_no:
+        if "acknowledged" not in branch_keys:
+            return None
+        polarity = fast_classify(utterance, ["yes", "no"])
+        return "acknowledged" if polarity == "yes" else None
+    tokens = _tokens(utterance)
+    if not tokens or len(tokens) > _FAST_PATH_MAX_WORDS:
+        return None
+    if tokens in (["जी"], ["ji"], ["જી"]):
+        return "yes"
+
+    # "nahi nahi, main aa jaunga" ("no no, I'll come") is a correction meaning
+    # YES. Found by tools/stt_benchmark.py: local STT drops the comma Sarvam
+    # used to add, and without it Qwen read the correction as a refusal - on
+    # every voice. A doubled refusal word opening the answer, followed by an
+    # un-negated attendance verb, is unambiguous enough to decide here.
+    # Simulator finding: STT also drops one of the two words ("नहीं मैं आ
+    # जाऊंगा"), so a single refusal word counts too - but only when a
+    # subject/filler word ("मैं", "कल", "हું") separates it from an attendance
+    # verb, which keeps "नहीं आऊंगा" (won't come) a refusal.
+    n_neg = 0
+    while n_neg < len(tokens) and tokens[n_neg] in _NEG:
+        n_neg += 1
+    rest = tokens[n_neg:]
+    # A "can/able" auxiliary (शकું / सकता / पाऊँगा / paunga) after the attendance
+    # verb means "I can('t) come" - live failure: Gujarati "ના, નહીં આવી શકું"
+    # ("no, I can't come") matched this correction rule and was recorded as
+    # CONFIRMED, so the reason question was never asked. Those go to the
+    # normal scope logic below, where the refusal stays in scope -> "no".
+    if (
+        n_neg
+        and len(rest) >= 2
+        and not any(t in _NEG for t in rest)
+        and all(t in _FILLER for t in rest)
+        and not any(t in _CAN for t in rest)
+    ):
+        if n_neg >= 2 and any(t in _ATTEND or t in _AFF for t in rest):
+            return "yes"
+        if n_neg == 1 and rest[0] in _NEUTRAL and any(t in _ATTEND for t in rest):
+            return "yes"
+
+    saw_neg = saw_aff = False
+    neg_in_scope = False
+    for tok in tokens:
+        if tok in _NEG:
+            saw_neg = neg_in_scope = True
+        elif tok in _AFF:
+            saw_aff, neg_in_scope = True, False
+        elif tok in _ATTEND:
+            if not neg_in_scope:
+                saw_aff = True
+            neg_in_scope = False
+        elif tok in _SCOPE_KEEP:
+            pass
+        elif tok in _NEUTRAL:
+            neg_in_scope = False
+        else:
+            return None  # a word we don't know - could be a reason, a question, a dispute
+
+    if saw_neg and not saw_aff:
+        return "no"
+    if saw_aff and not saw_neg:
+        return "yes"
+    if not saw_neg and not saw_aff:
+        # Every word is filler ("हूँ", "मैं", "કાલે") - nothing that answers
+        # the question. Seen with local STT on noisy audio: a fragment like
+        # "હું" ("I"), which Qwen then guessed into a confident "no". Asking
+        # again is right; a guess records a wrong outcome.
+        return "unclear"
+    return None  # both polarities ("haan nahi aa paunga") - LLM decides
+
+
+def is_real_reason(text: str | None) -> bool:
+    """False for a restatement of the refusal ("kal nahi aa paunga") that a
+    model returned as a "volunteered reason" - observed live on qwen2.5,
+    and it silently skipped the reason question. True once there's any word
+    that isn't refusal/attendance filler ("bukhar hai", "wife hospital")."""
+    return any(tok not in _FILLER for tok in _tokens(text or ""))
+
+
+async def warm_classifier(session: "ScenarioSession") -> None:
+    """Process this call's classifier prompt into Ollama's KV cache while the
+    opening plays, so the first LLM turn only pays for the caller's words
+    (~60-100ms) instead of the whole ~1200-token prompt (~900ms, measured).
+    Best-effort and local-backend only; never raises."""
+    if os.getenv("SCENARIO_LLM_BACKEND", "claude") != "local":
+        return
+    try:
+        from local_ai import llm_engine as local_llm_engine
+
+        branch_keys = list(session.lang_cfg["branches"].keys())
+        collects_reason = any("collect" in b for b in session.lang_cfg["branches"].values())
+        prompt = _build_classifier_prompt(
+            session.scenario, session.lang_cfg, session.facts,
+            conversation_history=session.conversation_history,
+        )
+        await local_llm_engine.prime_prompt(
+            prompt, _classification_schema(branch_keys, collects_reason, lean=True)
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.debug("classifier warm-up failed (non-fatal): %s", e)
 
 
 async def classify_utterance(
@@ -310,6 +530,17 @@ async def classify_utterance(
     branch_keys = list(lang_cfg["branches"].keys())
     collects_reason = any("collect" in b for b in lang_cfg["branches"].values())
 
+    fast = fast_classify(utterance, branch_keys)
+    if fast is not None:
+        return Classification(
+            branch=fast,
+            confidence=1.0,
+            detected_language=language,
+            rationale="fast-path keyword match",
+            volunteered_reason=None,
+            source="fast",
+        )
+
     prompt = _build_classifier_prompt(
         scenario, lang_cfg, facts, conversation_history=conversation_history,
     )
@@ -328,17 +559,36 @@ async def classify_utterance(
 
         classify_fn = local_llm_engine.classify_structured
 
+    lean = backend == "local"
+    extra = {"max_tokens": 40} if lean else {}
     result = await classify_fn(
         system_prompt=prompt,
         user_text=utterance,
-        schema=_classification_schema(branch_keys, collects_reason),
+        schema=_classification_schema(branch_keys, collects_reason, lean=lean),
+        **extra,
     )
+
+    if lean:
+        # The caller's own words, verbatim, when the model says a reason was
+        # given - and only if there's more in them than a restated refusal.
+        volunteered_reason = utterance.strip() if result.get("gave_reason") else None
+    else:
+        volunteered_reason = result.get("volunteered_reason") or None
+    if volunteered_reason is not None and not is_real_reason(volunteered_reason):
+        logger.info(
+            "[%s/%s] ignoring volunteered_reason=%r - a restatement of the refusal, not a "
+            "reason; the reason question will be asked",
+            scenario_id, language, volunteered_reason,
+        )
+        volunteered_reason = None
+
     return Classification(
         branch=result.get("branch", "unclear"),
         confidence=float(result.get("confidence", 0.0)),
-        detected_language=result.get("detected_language", "unknown"),
+        detected_language=result.get("detected_language", language),
         rationale=result.get("rationale", ""),
-        volunteered_reason=result.get("volunteered_reason") or None,
+        volunteered_reason=volunteered_reason,
+        source="llm",
     )
 
 
@@ -377,6 +627,8 @@ class ScenarioSession:
 
     collecting: Optional[str] = None
     _pending_branch: Optional[dict] = None
+    _reason_asks: int = 0  # re-asks of the reason question so far
+    _prelim_reason: Optional[str] = None  # reason volunteered with the "no", kept as a fallback
     reprompts: int = 0
     total_turns: int = 0
     finished: bool = False
@@ -448,6 +700,22 @@ class ScenarioSession:
         if self.collecting:
             slot = self.collecting
             branch = self._pending_branch or {}
+            # Simulator finding: after a pause, the rest of the refusal sentence
+            # ("ના, ... હું કાલે નહીં આવી શકું") arrived just after the bot asked
+            # why, and was saved as the reason - then the real reason came after
+            # the call had closed. A reply with no reason content gets one gentle
+            # re-ask; the second time it's recorded as-is so it can't loop.
+            if "reason" in slot and not is_real_reason(text) and self._reason_asks < MAX_REASON_REASKS:
+                self._reason_asks += 1
+                reply = render(self.lang_cfg.get("reason_reprompt") or branch.get("reply", ""), self.facts)
+                self.conversation_history.append({"role": "assistant", "content": reply})
+                logger.info("[%s/%s] %r has no reason in it - asking once more", self.scenario_id, self.language, text)
+                return TurnResult(
+                    reply=reply, end_call=False, outcome="awaiting_response",
+                    branch="reason_reprompt", classification=self.last_classification,
+                )
+            if "reason" in slot and not is_real_reason(text) and self._prelim_reason:
+                text = self._prelim_reason  # they did say why with the "no"; the answer added nothing
             self.collected[slot] = text
             self.collecting = None
             self._pending_branch = None
@@ -499,9 +767,10 @@ class ScenarioSession:
 
         # Branch collects free text (reason for absence) and the operator has
         # not already volunteered it in the same breath.
-        if branch.get("collect") and not classification.volunteered_reason:
+        if branch.get("collect") and (settings.scenario_always_ask_reason or not classification.volunteered_reason):
             self.collecting = branch["collect"]
             self._pending_branch = branch
+            self._prelim_reason = classification.volunteered_reason
             reply = render(branch["reply"], self.facts)
             self.conversation_history.append({"role": "assistant", "content": reply})
             logger.info(

@@ -108,7 +108,7 @@ Click the collection name → **Variables** tab → edit the **Current value** c
 | Variable | Set it to |
 |---|---|
 | `base_url` | `http://127.0.0.1:8000` (already correct for local) |
-| `to_phone_number` | The number to call, e.g. `+919426005911` |
+| `to_phone_number` | The number to call, e.g. `+91XXXXXXXXXX` |
 | `employee_name` | `Amit` |
 | `terminal` | `CT3` |
 | `supervisor_name` | `Suresh` |

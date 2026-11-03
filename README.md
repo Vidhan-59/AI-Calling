@@ -1,304 +1,269 @@
-# AI Calling Agent
+# AI Calling — ShiftEaze (OmniVoice edition)
 
-A real-time voice AI system that connects **Twilio Voice** to **Claude (Anthropic)** to hold natural, two-way phone conversations. Callers talk, Claude listens (via live sentiment analysis) and replies out loud, and every turn is stored so you can review transcripts, sentiment, and escalation flags afterward.
+An AI phone agent that calls port-terminal operators in **Hindi, Gujarati and English** to confirm shifts, remind them to punch in/out, check on absences and request overtime. The caller's answers are understood, branched on, and logged (outcome, reason for absence, sentiment, transcript).
 
-> ### 🇮🇳 ShiftEaze scripted scenario calling — see **[POSTMAN_GUIDE.md](POSTMAN_GUIDE.md)**
->
-> On top of the generic agent described below, this repo implements the **five ShiftEaze
-> calling scenarios** (Shift Confirmation, Punch-In, Absence Prediction, Overtime Request,
-> Punch-Out) in **English, Hindi and Gujarati**, using the exact scripts from the
-> character-profile and question-script documents.
->
-> The scripts live as editable knowledge bases in [scenarios/](scenarios/) — one JSON per case,
-> all three languages inside. Claude classifies what the operator said onto one scripted
-> branch (handling code-mixed Hinglish/Gujlish, paraphrase and negation), then speaks the
-> **exact scripted reply** for that branch. The model chooses the branch; it never writes the
-> words — which is what makes it safe for HR-sensitive calls while still sounding like a
-> conversation rather than a keypad IVR.
->
-> **Start here:**
-> - **[START_HERE.md](START_HERE.md)** — how to start the server (`.\start.ps1`), every time
-> - **[postman/ShiftEaze_AI_Calling.postman_collection.json](postman/)** — 35 ready-made requests, import straight into Postman
-> - **[POSTMAN_GUIDE.md](POSTMAN_GUIDE.md)** — every endpoint with full request bodies and outcome codes
->
-> Quickest path: `.\start.ps1`, then `POST /scenarios/preview` to proof-read the lines, then
-> `POST /scenarios/test-turn` to hold a full conversation over HTTP with no phone, Twilio or
-> tunnel involved.
+This edition runs the **voice stack on your own GPU** to cut cost:
 
-> **Heads-up if you're new to this repo:** there are currently **two things living in this folder**:
-> 1. **This simple agent** (`main.py`, `routers/`, `services/agent_manager.py`, `services/claude_client.py`, `services/conversation_store.py`, `simple_db.py`, `schemas.py`) — a working, runnable Claude + Twilio voice agent. This README is about this one.
-> 2. **A much larger in-progress rebuild** (`configs/`, `services/flow/`, `services/pipeline/`, `services/telephony/`, `services/stt/`, `services/tts/`, `services/agents/`, `services/dispatch/`, `services/guardrails/`, `migrations/`, `evals/`, `workers/`, `config.py`, `db.py`, `models.py`) targeting a much bigger platform (Postgres, Redis, Pipecat, multi-agent routing, Odoo integration, Indian telephony providers). That work is **not wired up or runnable yet** — most of its providers aren't configured, and it depends on infrastructure (Postgres, Redis) that isn't running locally.
->
-> The two share `config.py` (it deliberately keeps backwards-compatible aliases like `ANTHROPIC_API_KEY` for this simple agent) and `schemas.py` (holds this agent's Pydantic request/response models), but otherwise don't interfere with each other. If you only care about "make a phone call talk to Claude," you're in the right place — everything below works today with just an Anthropic key and Twilio credentials.
+| Part | What it uses | Cost |
+|---|---|---|
+| **Text-to-speech** | [OmniVoice](https://github.com/k2-fsa/OmniVoice) (open source, voice cloning) in its own service | no per-character fee |
+| **Speech-to-text** | **Sarvam** cloud (`USE_SARVAM_STT=true`) **or** local Whisper (`false`) — one flag | ≈ ₹0.50 / minute, or ₹0 |
+| **LLM ("brain")** | Qwen2.5-7B via [Ollama](https://ollama.com), local | no API fee |
+| **Telephony** | Twilio Media Streams | Twilio per-minute |
+
+A built-in **Voice Studio** web page lets you record/upload a short sample to **clone a voice** (or design one), preview it, and assign it per scenario and language.
 
 ---
 
-## Why Claude instead of OpenAI, and how this actually works
-
-The original version of this repo used OpenAI's **Realtime API**, which does audio-in/audio-out directly over a WebSocket — the whole point of that API is that OpenAI handles speech recognition and speech synthesis internally.
-
-**Claude has no equivalent realtime speech API.** Claude only understands text. So instead of streaming raw audio to Claude, this version uses **Twilio ConversationRelay**, which does the speech-to-text and text-to-speech *for you* and talks to your server in plain text over a WebSocket. That means:
+## How it works
 
 ```
-Caller speaks
-     │
-     ▼
-Twilio ConversationRelay  ──speech-to-text──►  transcribed text
-     │                                              │
-     │                                              ▼
-     │                                   Your FastAPI server:
-     │                                     1. Sentiment-classify the utterance (Claude Haiku 4.5)
-     │                                     2. Build conversation history + agent's system prompt
-     │                                     3. Ask Claude for a reply (streamed)
-     │                                              │
-     ◄──────────────text-to-speech────────────────  │
-     ▼
-Caller hears the reply
+ Phone ─ Twilio ──(wss: Media Streams)──► Main app (FastAPI, port 8000)
+                                           │  VAD ─► STT (Sarvam | local Whisper)
+                                           │  scenario engine + Qwen (Ollama, :11434)
+                                           │  audio cache ──► plays pre-rendered lines
+                                           ▼
+                                   TTS service (port 8100, own venv, GPU)
+                                   OmniVoice: clone/design voices, synthesize 8 kHz audio
+
+ Browser ─► http://localhost:8000/voice-studio   (create, preview, assign voices)
 ```
 
-Everything your server ever sees or produces is **plain text** — no audio codecs, no buffering, no realtime audio plumbing to write yourself. This is also simpler to run locally and cheaper to operate than the audio-native approach.
-
-The two-way, sentiment-aware behavior you asked for works like this:
-- Every caller utterance is transcribed, **sentiment-classified** (positive/neutral/negative, an emotion word, and an `escalate` flag), and stored.
-- If the caller sounds negative or the escalate flag is set, a short note (e.g. `[Caller tone: frustrated, sentiment=negative]`) is prepended to what Claude sees for that turn — so Claude's *next reply* is written with that context in mind (more empathetic, offers to escalate, etc.).
-- The full conversation history (not just the latest message) is sent to Claude on every turn, so it remembers everything said earlier in the call.
+* Scripted lines are synthesized once and cached on disk, and the call-specific ones are prepared while the phone rings, so replies play instantly.
+* The TTS service is a separate process because OmniVoice needs PyTorch + CUDA in its own Python environment.
 
 ---
 
-## Architecture
+## Requirements
 
-```
-┌─────────────┐   ConversationRelay   ┌──────────────┐    HTTPS     ┌─────────────┐
-│   Twilio    │ ◄──── WebSocket ─────► │  FastAPI     │ ◄──────────► │   Claude    │
-│   Voice     │      (plain text)      │  Server      │              │  (Anthropic)│
-└─────────────┘                        └──────┬───────┘              └─────────────┘
-                                               │
-                                        SQLite (simple_db.py)
-                                     agents / calls / messages
-```
-
-- **Dynamic, multi-agent, prompt-based "training"** — there's no fine-tuning involved (Claude's API doesn't support that). Instead, each **agent** is a row in the database: a name, a system prompt, a welcome greeting, a voice, a Claude model, and a "knowledge base" (a list of facts/FAQs that get woven into the prompt). Editing an agent's prompt via the API changes its behavior on the very next call — that's the "training from the prompt itself" mechanism. You can create as many agents as you want (e.g. one for sales, one for support, one for appointment reminders) and route different phone numbers or calls to different agents.
-- **Storage** is a small SQLite file at `data/legacy_app.db`, managed by `simple_db.py` — no Postgres/Redis/Docker required to run this.
+| | |
+|---|---|
+| OS | **Windows 10/11** (the helper scripts are PowerShell). Linux works too — see [Linux notes](#linux-notes). |
+| Python | 3.11 – 3.14 (tested on 3.14). Two virtualenvs are used. |
+| GPU | **NVIDIA, 8 GB VRAM minimum** (tested on an RTX 5060 laptop). 16 GB+ recommended — see [GPU memory](#gpu-memory-the-8-gb-reality). |
+| Disk | ~20 GB free (PyTorch+CUDA ≈ 6 GB, OmniVoice model 3.3 GB, Qwen 4.7 GB, Whisper models). **Not on a nearly-full drive.** |
+| Accounts | **Twilio** (account SID, auth token, a phone number) · **Sarvam** API key (if `USE_SARVAM_STT=true`) |
+| Tools | Git, [Ollama](https://ollama.com), and a public tunnel for Twilio (`ssh` for localhost.run, or ngrok) |
 
 ---
 
-## Prerequisites
+## Setup (Windows, step by step)
 
-- Python 3.10+ (this repo was set up and tested with Python 3.14 on Windows)
-- An [Anthropic API key](https://console.anthropic.com/settings/keys)
-- A [Twilio](https://www.twilio.com/try-twilio) account (Account SID, Auth Token, a phone number) — only needed for real phone calls, **not** for local testing (see Step 5 below)
-- [ngrok](https://ngrok.com/download) (or similar) — only needed for real phone calls, so Twilio can reach your local server
+### 1. Clone
 
----
+```powershell
+git clone https://github.com/BhavsarSamay/AI-Calling-omni.git
+cd AI-Calling-omni
+```
 
-## Step-by-step setup
+### 2. Main app: virtualenv, packages, Ollama, `.env`
 
-All commands below are PowerShell, run from `ai-calling-agent/`.
+The one-time helper does all of this (venv, `pip install`, Ollama via winget, pulls Qwen, GPU check, creates `.env`):
 
-### 1. Create and activate a virtual environment
+```powershell
+.\setup-new-machine.ps1
+```
+
+Manual equivalent:
 
 ```powershell
 python -m venv venv
-.\venv\Scripts\Activate.ps1
-```
-
-You should see `(venv)` appear at the start of your prompt. If PowerShell blocks the activation script with an execution-policy error, run this once and try again:
-
-```powershell
-Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
-```
-
-### 2. Install dependencies
-
-```powershell
-pip install -r requirements.txt
-```
-
-This installs FastAPI, Uvicorn, the `anthropic` SDK, Twilio's SDK, and `pydantic-settings` (needed because `config.py` is now shared with the larger rebuild described above).
-
-### 3. Configure your `.env` file
-
-```powershell
+.\venv\Scripts\python -m pip install -r requirements.txt -r requirements-local.txt
+winget install Ollama.Ollama
+ollama pull qwen2.5:7b-instruct
 Copy-Item .env.example .env
 ```
 
-Then open `.env` and fill in:
+### 3. Fill in `.env`
 
-```env
-ANTHROPIC_API_KEY=sk-ant-...           # required - get one at console.anthropic.com
-TWILIO_ACCOUNT_SID=AC...               # only needed for real phone calls
-TWILIO_AUTH_TOKEN=...                  # only needed for real phone calls
-TWILIO_PHONE_NUMBER=+1...              # only needed for real phone calls
-NGROK_URL=https://xxxx.ngrok-free.app  # only needed for real phone calls
+Open `.env` and set at least:
+
+```ini
+# Twilio (https://console.twilio.com)
+TELEPHONY_PROVIDER=twilio
+TWILIO_ACCOUNT_SID=ACxxxxxxxx
+TWILIO_AUTH_TOKEN=xxxxxxxx
+TWILIO_PHONE_NUMBER=+1xxxxxxxxxx
+
+# Speech-to-text: true = Sarvam cloud, false = local Whisper
+USE_SARVAM_STT=true
+SARVAM_API_KEY=xxxxxxxx
+
+# Local LLM
+SCENARIO_LLM_BACKEND=local
+LLM_BACKEND=local
+LOCAL_LLM_MODEL=qwen2.5:7b-instruct
+
+# Protects /voices and the analytics/admin endpoints (use a long random string)
+ADMIN_API_KEY=change-me-to-a-long-random-string
 ```
 
-`DEFAULT_CLAUDE_MODEL` defaults to `claude-opus-5` and can be left as-is, or changed to `claude-sonnet-5` / `claude-haiku-4-5` for a faster/cheaper conversational model (sentiment analysis always uses Haiku 4.5 regardless, since that's a simple classification task).
+`NGROK_URL` is filled in automatically by `run-all.ps1` (step 6). Never commit `.env` — it is git-ignored.
 
-### 4. Start the server
+### 4. TTS service: its own virtualenv with PyTorch + OmniVoice
+
+The venv lives **outside the repo** (it is large): `~\.cache\ai-calling\tts-venv`.
 
 ```powershell
-uvicorn main:app --port 8000
+$v = "$env:USERPROFILE\.cache\ai-calling\tts-venv"
+python -m venv $v
+
+# NVIDIA GPU. RTX 50xx (Blackwell) needs the CUDA 12.8 wheels:
+& $v\Scripts\python -m pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu128
+
+& $v\Scripts\python -m pip install -r tts_service\requirements.txt
+& $v\Scripts\python -c "import torch; print(torch.__version__, torch.cuda.is_available())"   # must print True
 ```
 
-You should see `Uvicorn running on http://127.0.0.1:8000`. On first start, a SQLite file is created at `data/legacy_app.db` and seeded with one `default` agent (its prompt comes from `prompts/system_prompt.txt`).
-
-Verify it's alive:
+**OmniVoice model (3.3 GB).** It downloads automatically on first start. On a slow or flaky connection fetch it once with a resumable download, then the service picks it up from `~\.cache\ai-calling\omnivoice-model`:
 
 ```powershell
-curl http://127.0.0.1:8000/
-# {"status":"healthy","message":"AI Voice Assistant is running!"}
+$d = "$env:USERPROFILE\.cache\ai-calling\omnivoice-model"
+New-Item -ItemType Directory -Force "$d\audio_tokenizer" | Out-Null
+$base = "https://huggingface.co/k2-fsa/OmniVoice/resolve/main"
+"config.json","tokenizer.json","tokenizer_config.json","chat_template.jinja","model.safetensors",
+"audio_tokenizer/config.json","audio_tokenizer/preprocessor_config.json","audio_tokenizer/model.safetensors" |
+  ForEach-Object { curl.exe -L -C - --retry 20 --retry-all-errors -o "$d\$($_ -replace '/','\')" "$base/$_" }
 ```
 
-### 5. Test it *without* a phone call, Twilio, or ngrok
+### 5. Optional: local Whisper models (only if `USE_SARVAM_STT=false`)
 
-This is the fastest way to check your agent's prompt, knowledge base, and sentiment-aware behavior — talk to it over plain HTTP:
+The converter needs `torch` + `transformers`, which the live server does not, so it runs from a separate short-path environment (torch's DLLs fail on long paths):
 
 ```powershell
-curl -X POST http://127.0.0.1:8000/chat/test `
-  -H "Content-Type: application/json" `
-  -d '{\"agent_id\": \"default\", \"session_id\": \"test1\", \"message\": \"Hi there!\"}'
+python -m venv "$env:USERPROFILE\.cache\ai-calling\cvenv"
+& "$env:USERPROFILE\.cache\ai-calling\cvenv\Scripts\pip" install torch transformers ctranslate2
+& "$env:USERPROFILE\.cache\ai-calling\cvenv\Scripts\python" tools\convert_stt_models.py
 ```
 
-`session_id` is any string you pick — reuse it across requests to continue the same conversation. Try sending a frustrated-sounding message and watch the `sentiment` block in the response, and notice the reply gets noticeably more empathetic.
+This writes the Hindi/Gujarati Whisper fine-tunes to `~\.cache\ai-calling\stt_models`. Then re-run the STT benchmark for your hardware if you like: `tools\stt_benchmark.py`.
 
-### 6. Wire up a real phone call
+### 6. Start everything
 
-1. Start ngrok in a separate terminal: `ngrok http 8000`, then copy the `https://...ngrok-free.app` URL into `NGROK_URL` in `.env` and restart uvicorn.
-2. **Inbound calls:** in the [Twilio Console](https://console.twilio.com/), open your phone number's configuration and set "A call comes in" to a webhook pointing at `<your-ngrok-url>/outgoing-call` (HTTP POST).
-3. **Outbound calls:** hit `/make-call`:
+```powershell
+.\run-all.ps1
+```
 
-   ```powershell
-   curl -X POST http://127.0.0.1:8000/make-call `
-     -H "Content-Type: application/json" `
-     -d '{\"to_phone_number\": \"+1234567890\", \"agent_id\": \"default\"}'
-   ```
+This frees port 8000, starts the **TTS service**, starts the **app**, opens a public **tunnel**, writes its URL into `.env` as `NGROK_URL`, and verifies Twilio can reach it. Leave the window open; `Ctrl+C` stops everything. Options: `-Tunnel ngrok`, `-NoTts`, `-Port 8001`, `-SkipChecks`.
 
-Either way, Twilio connects the call to `/media-stream` via ConversationRelay, and the conversation loop described above takes over.
+Start the pieces by hand instead:
 
-> **Note:** ConversationRelay is a Twilio **public beta** product. If message field names change on Twilio's end, `routers/voice.py` is the one file to check/update — it's a single, well-commented WebSocket handler.
+```powershell
+.\tts_service\run-tts.ps1                                  # http://127.0.0.1:8100/health  → "status":"ok"
+.\venv\Scripts\python -m uvicorn main:app --host 127.0.0.1 --port 8000
+```
+
+### 7. Create a voice (once)
+
+Open **http://localhost:8000/voice-studio**, enter your `ADMIN_API_KEY`, and:
+
+1. **Clone from audio** — record or upload 3–10 s of clear speech (type what is said for best quality) and save, **or** **Design from attributes**.
+2. Click **Make default**. The first voice you create is the default automatically.
+3. Optionally assign different voices per scenario / language in the table below.
+
+> The shift scripts use **feminine** first-person Hindi/Gujarati verbs ("bol rahi hoon"). Use a **female** voice for them.
+> Only clone voices you have permission to use.
+
+### 8. Try it without a phone
+
+```powershell
+.\venv\Scripts\python tools\simulate_scenario_call.py          # full simulated calls through the real pipeline
+```
+
+Or import `postman/ShiftEaze_AI_Calling.postman_collection.json` into Postman and set `base_url` (`http://127.0.0.1:8000`) and `to_phone_number`. Run **2. Preview** and **3. Test without a phone** first; **4. Place a real call** needs the tunnel. See [POSTMAN_GUIDE.md](POSTMAN_GUIDE.md).
 
 ---
 
-## Creating and editing agents (the "training" workflow)
+## Configuration reference
 
-Every agent is just a database row you manage over the API — no code changes, no redeploys, no fine-tuning.
+| Variable | Default | Meaning |
+|---|---|---|
+| `USE_SARVAM_STT` | `true` | `true` Sarvam cloud STT · `false` local Whisper |
+| `SARVAM_API_KEY` | — | needed for Sarvam STT (and as a safety-net fallback) |
+| `LOCAL_STT_FALLBACK_SARVAM` | `true` | if a local decode fails, retry that utterance on Sarvam |
+| `LOCAL_STT_GPU_MODELS` | `1` | Whisper models kept on the GPU (the call's language); others wait in RAM |
+| `LOCAL_STT_IDLE_OFFLOAD_SECS` | `30` | park idle Whisper in RAM to free VRAM (`0` = never) |
+| `TTS_SERVICE_URL` / `TTS_SERVICE_TOKEN` | `http://127.0.0.1:8100` / empty | where the TTS service is; shared secret if it is reachable by others |
+| `TTS_IDLE_OFFLOAD_SECS` | `auto` | OmniVoice parks itself in RAM when idle (auto = 8 s on ≤12 GB GPUs) |
+| `TTS_LIVE_NUM_STEP` / `TTS_CACHED_NUM_STEP` | `16` / `32` | OmniVoice quality-vs-speed (live replies vs pre-rendered lines) |
+| `SCENARIO_LLM_BACKEND` | `claude` | `local` = Qwen via Ollama (no Anthropic key needed) |
+| `SCENARIO_VOICE_TRANSPORT` | `media` | `media` = this pipeline · `relay` = old Twilio ConversationRelay rollback |
+| `ADMIN_API_KEY` | — | required outside development; protects admin/voice endpoints |
 
-**Create a new agent:**
-
-```powershell
-curl -X POST http://127.0.0.1:8000/agents `
-  -H "Content-Type: application/json" `
-  -d '{
-    \"name\": \"Sales Bot\",
-    \"system_prompt\": \"You are a friendly sales rep for Acme Corp. Keep replies short and warm.\",
-    \"welcome_greeting\": \"Hi! Thanks for calling Acme, how can I help?\",
-    \"knowledge_base\": [
-      \"Acme ships in 3-5 business days\",
-      \"Returns are accepted within 30 days of purchase\"
-    ]
-  }'
-```
-
-This returns an `id` (auto-generated from the name, e.g. `sales-bot`) — pass that as `agent_id` on `/make-call`, in the ConversationRelay webhook URL (`/outgoing-call?agent_id=sales-bot`), or on `/chat/test` to talk to that specific agent.
-
-**Edit an agent live** (takes effect on the very next call/message — this is the whole point):
-
-```powershell
-curl -X PUT http://127.0.0.1:8000/agents/sales-bot `
-  -H "Content-Type: application/json" `
-  -d '{\"system_prompt\": \"You are now also allowed to discuss bulk order discounts.\"}'
-```
-
-**List / inspect / delete:**
-
-```powershell
-curl http://127.0.0.1:8000/agents
-curl http://127.0.0.1:8000/agents/sales-bot
-curl -X DELETE http://127.0.0.1:8000/agents/sales-bot
-```
-
-`knowledge_base` is a list of short facts/FAQs — think of it as lightweight, editable "training data." It gets woven into the agent's system prompt on every turn, so Claude can reference those facts naturally without you having to rewrite the whole prompt every time a fact changes.
+Full list with comments: [.env.example](.env.example). The TTS service's own settings: [tts_service/README.md](tts_service/README.md).
 
 ---
 
-## Reviewing calls, transcripts, and sentiment
+## GPU memory — the 8 GB reality
 
-```powershell
-curl http://127.0.0.1:8000/calls                    # list recent calls (real + /chat/test sessions)
-curl http://127.0.0.1:8000/calls/<call_sid>          # full transcript, per-message sentiment, escalation flag
-```
+Measured on an 8 GB card: Qwen ≈ 4.6 GB, OmniVoice ≈ 2.1 GB, each Whisper-medium ≈ 2 GB. They cannot all be resident at once; the overflow spills to system RAM and decodes stall ("local STT failed: TimeoutError"). This repo handles it by keeping only the active language's Whisper on the GPU and parking idle OmniVoice/Whisper in RAM (≈ 0.3–0.7 s to wake). With **≥ 16 GB** set `LOCAL_STT_GPU_MODELS=2` and `TTS_IDLE_OFFLOAD_SECS=0`. A smaller LLM also frees memory. If you want zero risk on a small GPU, use `USE_SARVAM_STT=true`.
 
-Each message in a transcript carries `sentiment_label` (positive/neutral/negative), `sentiment_score` (-1.0 to 1.0), `emotion` (one word), and `escalate` (whether a human should probably step in). The call summary also reports `average_sentiment_score` and `escalation_recommended` for the whole conversation. Escalation flags are currently just logged to the server console (`routers/voice.py`) — wiring that up to a Slack alert, webhook, or live transfer is a natural next step if you need it.
+## Cost (rough)
 
----
-
-## API reference
-
-| Method    | Endpoint             | Description                                                  |
-| --------- | --------------------- | ------------------------------------------------------------ |
-| GET       | `/`                    | Health check                                                  |
-| GET       | `/agents`              | List all agents                                                |
-| POST      | `/agents`              | Create a new agent                                             |
-| GET       | `/agents/{id}`         | Get one agent                                                  |
-| PUT       | `/agents/{id}`         | Update an agent's prompt/voice/model/knowledge base            |
-| DELETE    | `/agents/{id}`         | Delete an agent (not the `default` one)                        |
-| POST      | `/make-call`           | Place an outbound call (`to_phone_number`, `agent_id`)          |
-| POST/GET  | `/outgoing-call`       | Twilio webhook - returns ConversationRelay TwiML               |
-| POST      | `/recording-status`    | Twilio recording status webhook                                |
-| WebSocket | `/media-stream`        | ConversationRelay's text-in/text-out socket (the call loop)     |
-| GET       | `/calls`               | List recent calls                                              |
-| GET       | `/calls/{call_sid}`    | Full transcript + sentiment summary for one call                |
-| POST      | `/chat/test`           | Talk to an agent over plain HTTP - no phone/Twilio needed        |
-
----
-
-## Project layout (this agent's files only)
-
-```
-main.py                       FastAPI app, wires up the routers
-config.py                     Shared settings (owned by the larger rebuild; keeps
-                               backwards-compatible aliases this agent relies on)
-schemas.py                    Pydantic request/response models for this agent's endpoints
-simple_db.py                  This agent's own isolated SQLite store (data/legacy_app.db)
-prompts/system_prompt.txt     Seed prompt for the built-in "default" agent (first run only)
-
-services/
-  claude_client.py            Anthropic API wrapper: streaming replies + sentiment classification
-  agent_manager.py             Agent CRUD + system-prompt assembly (base prompt + knowledge base)
-  conversation_store.py        Calls/messages persistence + summary/sentiment aggregation
-
-routers/
-  agents.py                    Agent CRUD endpoints
-  calls.py                     /make-call, /outgoing-call TwiML, /calls, /chat/test
-  voice.py                     The ConversationRelay WebSocket - the live call loop
-```
+* **TTS (OmniVoice) and LLM (Qwen): ₹0 per call** — electricity/GPU only.
+* **Sarvam STT:** ₹30 per audio-hour ≈ **₹0.50 per minute** of call (check [Sarvam pricing](https://docs.sarvam.ai/api/pricing)).
+* **Twilio:** its normal per-minute telephony charges.
 
 ---
 
 ## Troubleshooting
 
-- **"Missing ANTHROPIC_API_KEY" error when calling `/chat/test` or making a call:** the server starts fine without a key (health check and agent CRUD both work), but anything that actually talks to Claude needs it set in `.env` — restart uvicorn after editing `.env`.
-- **`ModuleNotFoundError` on startup:** make sure your venv is activated (`(venv)` in the prompt) and you ran `pip install -r requirements.txt` inside it.
-- **Twilio can't reach your server:** `NGROK_URL` in `.env` must match your *current* ngrok URL exactly (it changes every time you restart ngrok on the free tier) — update `.env` and restart uvicorn after every ngrok restart.
-- **A call connects but there's silence/no reply:** check the server console — sentiment classification and Claude replies are logged there, and any error (e.g. a bad model name) will show up as a Python traceback.
+| Symptom | Fix |
+|---|---|
+| `Not placing the call: your public URL … returned HTTP 502` | The tunnel died (free localhost.run URLs also rotate). Re-run `.\run-all.ps1`, or use ngrok / a stable tunnel. Twilio says "an application error has occurred" when it can't reach your URL. |
+| Voice Studio: "voice service offline" / calls have no voice | TTS service not running — `.\tts_service\run-tts.ps1`, check `http://127.0.0.1:8100/health`. |
+| Bot doesn't hear you with local Whisper | GPU out of memory — see [GPU memory](#gpu-memory-the-8-gb-reality), or set `USE_SARVAM_STT=true`. |
+| After saying "no" the bot doesn't ask why | Fixed in this version (the reason is always asked). Make sure you pulled the latest code and restarted. |
+| `torch.cuda.is_available()` is False | Install the CUDA wheels (step 4) and update the NVIDIA driver. |
+| Install fails with *No space left on device* | Free disk space; keep the TTS venv and models on a drive with ≥ 20 GB free. |
+| `Could not reconcile active_call_count (Redis unreachable?)` | Harmless unless you use the dialer (`DIALER_ENABLED`), which needs Redis. |
 
 ---
 
-## Development
+## Tests
 
 ```powershell
-pip install -r requirements-dev.txt
-black .
-isort .
-flake8
-mypy main.py
-pytest
+.\venv\Scripts\python -m pytest tests                                              # main app (~240 tests, no GPU needed)
+& "$env:USERPROFILE\.cache\ai-calling\tts-venv\Scripts\python" -m pytest tts_service\tests   # TTS service (mock engine)
 ```
+
+## Project layout
+
+```
+main.py, config.py            FastAPI app and settings
+routers/                      HTTP/WebSocket endpoints (scenarios, voices, agents, analytics…)
+services/scenario_engine.py   the conversation brain: classify answers, branch, ask "why?"
+services/voice_pipeline/      live call pipeline (VAD → STT → engine → cached TTS), local Whisper
+services/tts/                 OmniVoice client, voice assignments, Pipecat TTS service
+tts_service/                  the OmniVoice service (own venv)   → tts_service/README.md
+static/voice_studio.html      Voice Studio UI
+scenarios/*.json              the five scripted scenarios × Hindi / Gujarati / English
+configs/, prompts/            config-driven agents and prompt templates
+tools/                        call simulator, STT benchmark, model converter
+postman/                      Postman collection
+```
+
+More background: [START_HERE.md](START_HERE.md) · [TECHNICAL_REFERENCE.md](TECHNICAL_REFERENCE.md) · [LOCAL_AI_README.md](LOCAL_AI_README.md).
+
+## Linux notes
+
+The `.ps1` helpers are Windows-only, but nothing else is:
+
+```bash
+python -m venv venv && ./venv/bin/pip install -r requirements.txt -r requirements-local.txt
+python -m venv ~/.cache/ai-calling/tts-venv
+~/.cache/ai-calling/tts-venv/bin/pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu128
+~/.cache/ai-calling/tts-venv/bin/pip install -r tts_service/requirements.txt
+~/.cache/ai-calling/tts-venv/bin/python -m uvicorn tts_service.app:app --port 8100 &
+./venv/bin/python -m uvicorn main:app --host 127.0.0.1 --port 8000
+```
+
+Set `TTS_MODEL`, `TTS_VOICES_DIR` as environment variables if you keep them elsewhere, and start your own tunnel (`ngrok http 8000`), then put its URL in `.env` as `NGROK_URL`.
+
+## Responsible use
+
+These calls are automated and use synthetic or cloned voices. Disclose that the caller is an AI where required, honour consent and calling-hour rules, and only clone voices you have the speaker's permission to use.
 
 ## License
 
-MIT - see [LICENSE](LICENSE).
-
-## ⚠️ Disclaimer
-
-This project is not officially affiliated with Anthropic or Twilio. Use responsibly and in accordance with their terms of service.
+See [LICENSE](LICENSE). OmniVoice is Apache-2.0.

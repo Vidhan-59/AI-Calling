@@ -33,16 +33,26 @@ WHISPER_COMPUTE_TYPE = os.getenv("LOCAL_WHISPER_COMPUTE_TYPE", "int8")
 
 # --- LLM (Ollama) ------------------------------------------------------------
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
-# Measured on this project's actual hardware (Ryzen 7 5800HS, 8c/16t, CPU-only,
-# no GPU) classifying the same 3 Hindi test utterances via scenario_engine:
+# UPDATE (2026-09-30, GPU machine - RTX 5060 Laptop, 8GB VRAM): the numbers
+# below this line were measured on a CPU-only box and no longer describe this
+# machine. Ollama 100%-GPU-offloads qwen2.5:7b-instruct here; re-measured
+# through the REAL run_turn() code path (flow graph + tools + guardrails,
+# not just a raw chat ping): 0.9-1.7s/turn, correct tool-calling behavior.
+# Also benchmarked qwen3:8b as a candidate upgrade the same way: 3.2-3.8s/turn
+# steady-state (2-4x slower - likely its default "thinking mode" generating
+# hidden reasoning tokens before the answer) AND it returned an EMPTY reply
+# on every non-tool-calling turn in this app's Ollama tool-calling contract -
+# a real compatibility defect, not just a speed tradeoff. Verdict: stayed on
+# qwen2.5:7b-instruct as the default. Revisit qwen3 only after disabling its
+# thinking mode and re-verifying output is non-empty - don't just flip the
+# model name.
+#
+# Original CPU-only measurement (kept for history, no longer this machine's
+# reality): classifying the same 3 Hindi test utterances via scenario_engine
+# on a Ryzen 7 5800HS, 8c/16t, CPU-only, no GPU:
 #   phi4-mini (MIT, 2.5GB):           23-33s/turn, 1/3 correct (missed the
 #     negation trap and the supervisor-escalation intent)
 #   qwen2.5:7b-instruct (Apache-2.0, 4.7GB): 33-60s/turn, 3/3 correct
-# Default is qwen2.5:7b-instruct: for the offline/dev/QA use this is actually
-# recommended for (see SCENARIO_LLM_BACKEND below), accuracy matters more than
-# the speed difference. Override with LOCAL_LLM_MODEL if you want phi4-mini's
-# speed for quick iteration instead, or a different model entirely - no code
-# change needed either way, just `ollama pull <model>` and set the env var.
 OLLAMA_MODEL = os.getenv("LOCAL_LLM_MODEL", "qwen2.5:7b-instruct")
 OLLAMA_TIMEOUT_SECONDS = float(os.getenv("LOCAL_LLM_TIMEOUT", "150"))
 # Ollama unloads a model from RAM after this much idle time, then pays a
@@ -52,7 +62,11 @@ OLLAMA_TIMEOUT_SECONDS = float(os.getenv("LOCAL_LLM_TIMEOUT", "150"))
 # above. "30m" keeps the model resident through a normal test/demo session
 # instead of unloading after Ollama's 5-minute default. Set to "-1" to never
 # unload for the length of a demo.
-OLLAMA_KEEP_ALIVE = os.getenv("LOCAL_LLM_KEEP_ALIVE", "30m")
+# "-1m" = never unload (verified: `ollama ps` shows UNTIL "Forever"). The
+# local model is now on the live-call critical path, and a cold reload is
+# ~9.6s measured on this machine - the first call after 30 idle minutes paid
+# it as dead air. On a machine dedicated to calling, keep it resident.
+OLLAMA_KEEP_ALIVE = os.getenv("LOCAL_LLM_KEEP_ALIVE", "-1m")
 
 # --- TTS (Piper) --------------------------------------------------------------
 # See LOCAL_AI_README.md "Known limitation" section before relying on this for

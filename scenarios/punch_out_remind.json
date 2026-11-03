@@ -7,7 +7,10 @@
   "max_attempts": 2,
   "no_answer_outcome": "no_response_reminder_logged",
   "no_answer_action": "Supervisor notified.",
-  "required_facts": ["employee_name", "terminal"],
+  "required_facts": [
+    "employee_name",
+    "terminal"
+  ],
   "knowledge_base": [
     "This is the shortest and lightest of the five calls. The operator is tired and heading home - keep it to two turns if possible.",
     "If the operator has already left the site, log the exception and tell them the supervisor will regularise it. Never ask them to return.",
@@ -23,138 +26,233 @@
       "tts_language": "en-IN",
       "transcription_language": "en-IN",
       "voice": "en-IN-Neural2-B",
-      "opening": "Hello {employee_name}, your duty has ended and your punch-out has not been recorded yet. Please punch out before leaving {terminal}.",
-      "attempt_2_opening": "Hello {employee_name}, this is a follow-up reminder - your punch-out is still pending. Please complete it now so your attendance is closed properly.",
-      "silence_reply": "It seems you're unable to respond right now. Please punch out as soon as possible. Thank you!",
+      "opening": "Hi {employee_name}, this is ShiftEaze calling. Your duty has ended, but we don't see your punch-out yet. Please punch out before you leave {terminal}, okay?",
+      "attempt_2_opening": "Hi {employee_name}, ShiftEaze again. Your punch-out is still pending. Please do it before you leave, okay?",
+      "silence_reply": "Looks like we can't connect right now. I'll try you again a bit later. Thank you!",
       "branches": {
         "still_working": {
           "description": "Operator is still working or on an extended shift / doing OT now.",
-          "keywords": ["still working", "extended shift", "doing OT now"],
-          "reply": "Understood, we've noted this as an extended shift. Please punch out once you're done. Thank you!",
+          "keywords": [
+            "still working",
+            "extended shift",
+            "doing OT now"
+          ],
+          "reply": "Oh, okay. I've noted it as an extended shift. Please punch out once you're done. Thank you!",
           "outcome": "ot_extension_logged",
           "end_call": true
         },
         "already_punched": {
           "description": "Operator says they already punched out.",
-          "keywords": ["I already punched out", "already done"],
-          "reply": "Understood, we'll recheck this in the system. Thank you!",
+          "keywords": [
+            "I already punched out",
+            "already done"
+          ],
+          "reply": "Oh, okay. I'll have it checked in the system again. Thank you!",
           "outcome": "operator_claims_done_recheck_flagged",
           "end_call": true
         },
         "technical_issue": {
           "description": "Operator reports a scanner, machine or system problem preventing the punch-out.",
-          "keywords": ["scanner not working", "machine is down", "system won't accept my punch"],
-          "reply": "I'm sorry for the trouble. I'll inform your supervisor right away. Thank you!",
+          "keywords": [
+            "scanner not working",
+            "machine is down",
+            "system won't accept my punch"
+          ],
+          "reply": "Oh, sorry about that trouble. I'll let your supervisor know right away. Thank you!",
           "outcome": "technical_issue_escalated",
           "end_call": true
         },
         "supervisor": {
           "description": "Operator wants to speak to a supervisor or a human.",
-          "keywords": ["talk to my supervisor", "connect me to a person"],
-          "reply": "I'll pass this on to your supervisor, {supervisor_name}. Thank you!",
+          "keywords": [
+            "talk to my supervisor",
+            "connect me to a person"
+          ],
+          "reply": "Sure, I'll let your supervisor know, and they'll get in touch with you. Thank you!",
           "outcome": "escalated_supervisor_notified",
           "end_call": true
         },
         "wrong_number": {
           "description": "Wrong number or the person is not the named operator.",
-          "keywords": ["wrong number", "this isn't {employee_name}", "who is this"],
-          "reply": "I'm sorry for the inconvenience. I'll correct this on our end. Thank you!",
+          "keywords": [
+            "wrong number",
+            "this isn't {employee_name}",
+            "who is this"
+          ],
+          "reply": "Oh, I'm sorry, I must have the wrong number. Apologies for the trouble. Thank you!",
           "outcome": "data_mismatch_flagged",
           "end_call": true
+        },
+        "acknowledged": {
+          "description": "Operator acknowledges the reminder and will punch out.",
+          "keywords": [
+            "okay",
+            "sure",
+            "will do",
+            "yes",
+            "I'll do it"
+          ],
+          "reply": "Okay, thank you! Please punch out before you leave.",
+          "outcome": "acknowledged",
+          "end_call": true
         }
-      }
+      },
+      "unclear_reprompt": "Sorry, I didn't quite catch that. You'll punch out before you leave, right?",
+      "silence_checkin": "Hello? Can you hear me?"
     },
     "hi": {
       "language_name": "Hindi",
       "tts_language": "hi-IN",
       "transcription_language": "hi-IN",
       "voice": "hi-IN-Neural2-B",
-      "opening": "नमस्ते {employee_name}, आपकी ड्यूटी समाप्त हो गई है और अभी तक आपका पंच-आउट दर्ज नहीं हुआ है। कृपया {terminal} छोड़ने से पहले पंच-आउट करें।",
-      "attempt_2_opening": "हेलो {employee_name} भाई, ये फॉलो-अप रिमाइंडर है — आपका पंच-आउट अभी भी पेंडिंग है। कृपया अभी पूरा कर दीजिए ताकि आपकी अटेंडेंस सही से क्लोज़ हो जाए।",
-      "silence_reply": "ऐसा लगता है कि आप अभी उत्तर नहीं दे पा रहे हैं। कृपया जितनी जल्दी हो सके पंच-आउट करें। आपका धन्यवाद!",
+      "opening": "नमस्ते {employee_name} जी, मैं शिफ्टईज़ से बोल रही हूँ। आपकी ड्यूटी ख़त्म हो चुकी है, पर अभी तक पंच-आउट नहीं हुआ है। {terminal} से निकलने से पहले पंच-आउट कर लीजिएगा, ठीक है?",
+      "attempt_2_opening": "नमस्ते {employee_name} जी, शिफ्टईज़ से दोबारा बोल रही हूँ। आपका पंच-आउट अभी भी बाकी है। निकलने से पहले कर लीजिएगा, ठीक है?",
+      "silence_reply": "लगता है अभी बात नहीं हो पा रही। मैं बाद में दोबारा कॉल कर लूँगी। धन्यवाद!",
       "branches": {
         "still_working": {
           "description": "Operator is still working or on an extended shift / doing OT now.",
-          "keywords": ["अभी काम चल रहा है", "शिफ्ट बढ़ी है", "ओटी कर रहा हूं"],
-          "reply": "समझ गया, हमने इसे बढ़ी हुई शिफ्ट के रूप में दर्ज कर लिया है। काम पूरा होने पर कृपया पंच-आउट करें। आपका धन्यवाद!",
+          "keywords": [
+            "अभी काम चल रहा है",
+            "शिफ्ट बढ़ी है",
+            "ओटी कर रहा हूं"
+          ],
+          "reply": "अच्छा, ठीक है। मैंने इसे एक्सटेंडेड शिफ्ट के तौर पर नोट कर लिया है। काम ख़त्म होने पर पंच-आउट कर लीजिएगा। धन्यवाद!",
           "outcome": "ot_extension_logged",
           "end_call": true
         },
         "already_punched": {
           "description": "Operator says they already punched out.",
-          "keywords": ["मैंने पंच-आउट कर दिया है", "हो गया है"],
-          "reply": "समझ गया, हम इसे सिस्टम में दोबारा जांच लेंगे। आपका धन्यवाद!",
+          "keywords": [
+            "मैंने पंच-आउट कर दिया है",
+            "हो गया है"
+          ],
+          "reply": "अच्छा, ठीक है। मैं सिस्टम में दोबारा चेक करवा लेती हूँ। धन्यवाद!",
           "outcome": "operator_claims_done_recheck_flagged",
           "end_call": true
         },
         "technical_issue": {
           "description": "Operator reports a scanner, machine or system problem preventing the punch-out.",
-          "keywords": ["स्कैनर नहीं चल रहा", "मशीन खराब है", "सिस्टम पंच नहीं ले रहा"],
-          "reply": "इस परेशानी के लिए क्षमा करें। मैं अभी आपके सुपरवाइज़र को सूचित कर देता हूं। आपका धन्यवाद!",
+          "keywords": [
+            "स्कैनर नहीं चल रहा",
+            "मशीन खराब है",
+            "सिस्टम पंच नहीं ले रहा"
+          ],
+          "reply": "ओह, इस परेशानी के लिए माफ़ी चाहती हूँ। मैं अभी आपके सुपरवाइज़र को बता देती हूँ। धन्यवाद!",
           "outcome": "technical_issue_escalated",
           "end_call": true
         },
         "supervisor": {
           "description": "Operator wants to speak to a supervisor or a human.",
-          "keywords": ["मुझे सुपरवाइज़र से बात करनी है"],
-          "reply": "मैं यह बात आपके सुपरवाइज़र {supervisor_name} को बता दूंगा। आपका धन्यवाद!",
+          "keywords": [
+            "मुझे सुपरवाइज़र से बात करनी है"
+          ],
+          "reply": "ठीक है, मैं आपके सुपरवाइज़र को बता देती हूँ, वो आपसे बात कर लेंगे। धन्यवाद!",
           "outcome": "escalated_supervisor_notified",
           "end_call": true
         },
         "wrong_number": {
           "description": "Wrong number or the person is not the named operator.",
-          "keywords": ["गलत नंबर है", "मैं {employee_name} नहीं हूं"],
-          "reply": "असुविधा के लिए क्षमा करें। मैं इसे अपनी तरफ से ठीक करवा दूंगा। आपका धन्यवाद!",
+          "keywords": [
+            "गलत नंबर है",
+            "मैं {employee_name} नहीं हूं"
+          ],
+          "reply": "ओह, माफ़ कीजिए, शायद गलत नंबर लग गया। परेशानी के लिए माफ़ी चाहती हूँ। धन्यवाद!",
           "outcome": "data_mismatch_flagged",
           "end_call": true
+        },
+        "acknowledged": {
+          "description": "Operator acknowledges the reminder and will punch out.",
+          "keywords": [
+            "ठीक है",
+            "हाँ कर लूंगा",
+            "ओके",
+            "हाँ",
+            "कर दूंगा"
+          ],
+          "reply": "ठीक है, धन्यवाद! निकलने से पहले पंच-आउट कर लीजिएगा।",
+          "outcome": "acknowledged",
+          "end_call": true
         }
-      }
+      },
+      "unclear_reprompt": "माफ़ कीजिए, ठीक से सुनाई नहीं दिया। निकलने से पहले पंच-आउट कर लेंगे ना?",
+      "silence_checkin": "हेलो? आप सुन पा रहे हैं?"
     },
     "gu": {
       "language_name": "Gujarati",
       "tts_language": "gu-IN",
       "transcription_language": "gu-IN",
       "voice": "gu-IN-Wavenet-B",
-      "opening": "નમસ્તે {employee_name}, તમારી ડ્યુટી પૂરી થઈ ગઈ છે અને હજુ સુધી તમારો પંચ-આઉટ નોંધાયો નથી. કૃપા કરી {terminal} છોડતા પહેલા પંચ-આઉટ કરો.",
-      "attempt_2_opening": "હેલો {employee_name} ભાઈ, આ ફોલો-અપ રિમાઇન્ડર છે — તમારો પંચ-આઉટ હજુ પણ પેન્ડિંગ છે. કૃપા કરીને હવે પૂરો કરી દેજો જેથી તમારી અટેન્ડન્સ સારી રીતે બંધ થઈ જાય.",
-      "silence_reply": "એવું લાગે છે કે તમે અત્યારે જવાબ આપી શકતા નથી. કૃપા કરી બની શકે એટલું જલ્દી પંચ-આઉટ કરો. તમારો આભાર!",
+      "opening": "નમસ્તે {employee_name}, હું શિફ્ટઈઝ માંથી બોલું છું. તમારી ડ્યુટી પૂરી થઈ ગઈ છે, પણ હજુ પંચ-આઉટ થયું નથી. {terminal} છોડતા પહેલાં પંચ-આઉટ કરી લેજો, બરાબર?",
+      "attempt_2_opening": "નમસ્તે {employee_name}, શિફ્ટઈઝ માંથી ફરી બોલું છું. તમારું પંચ-આઉટ હજુ બાકી છે. નીકળતા પહેલાં કરી લેજો, બરાબર?",
+      "silence_reply": "લાગે છે અત્યારે વાત નથી થઈ શકતી. હું થોડી વાર પછી ફરી ફોન કરીશ. આભાર!",
       "branches": {
         "still_working": {
           "description": "Operator is still working or on an extended shift / doing OT now.",
-          "keywords": ["હજુ કામ ચાલે છે", "શિફ્ટ લંબાઈ છે", "ઓટી કરી રહ્યો છું"],
-          "reply": "સમજાયું, અમે આને લંબાયેલી શિફ્ટ તરીકે નોંધી લીધું છે. કામ પૂરું થયા પછી કૃપા કરી પંચ-આઉટ કરો. તમારો આભાર!",
+          "keywords": [
+            "હજુ કામ ચાલે છે",
+            "શિફ્ટ લંબાઈ છે",
+            "ઓટી કરી રહ્યો છું"
+          ],
+          "reply": "સારું, બરાબર. મેં આને એક્સટેન્ડેડ શિફ્ટ તરીકે નોંધી લીધું છે. કામ પૂરું થાય ત્યારે પંચ-આઉટ કરી લેજો. આભાર!",
           "outcome": "ot_extension_logged",
           "end_call": true
         },
         "already_punched": {
           "description": "Operator says they already punched out.",
-          "keywords": ["મેં પંચ-આઉટ કરી દીધું છે", "થઈ ગયું છે"],
-          "reply": "સમજાયું, અમે આ સિસ્ટમમાં ફરી ચકાસી લઈશું. તમારો આભાર!",
+          "keywords": [
+            "મેં પંચ-આઉટ કરી દીધું છે",
+            "થઈ ગયું છે"
+          ],
+          "reply": "સારું, બરાબર. હું સિસ્ટમમાં ફરીથી ચેક કરાવી લઉં છું. આભાર!",
           "outcome": "operator_claims_done_recheck_flagged",
           "end_call": true
         },
         "technical_issue": {
           "description": "Operator reports a scanner, machine or system problem preventing the punch-out.",
-          "keywords": ["સ્કેનર ચાલતું નથી", "મશીન બગડેલું છે", "સિસ્ટમ પંચ લેતું નથી"],
-          "reply": "આ તકલીફ બદલ માફ કરશો. હું હમણાં જ તમારા સુપરવાઇઝરને જાણ કરી દઉં છું. તમારો આભાર!",
+          "keywords": [
+            "સ્કેનર ચાલતું નથી",
+            "મશીન બગડેલું છે",
+            "સિસ્ટમ પંચ લેતું નથી"
+          ],
+          "reply": "ઓહ, આ તકલીફ બદલ માફી. હું હમણાં જ તમારા સુપરવાઇઝરને જણાવી દઉં છું. આભાર!",
           "outcome": "technical_issue_escalated",
           "end_call": true
         },
         "supervisor": {
           "description": "Operator wants to speak to a supervisor or a human.",
-          "keywords": ["સુપરવાઇઝર સાથે વાત કરાવો"],
-          "reply": "હું આ વાત તમારા સુપરવાઇઝર {supervisor_name} ને જણાવીશ. તમારો આભાર!",
+          "keywords": [
+            "સુપરવાઇઝર સાથે વાત કરાવો"
+          ],
+          "reply": "બરાબર, હું તમારા સુપરવાઇઝરને જણાવી દઉં છું, તેઓ તમારી સાથે વાત કરશે. આભાર!",
           "outcome": "escalated_supervisor_notified",
           "end_call": true
         },
         "wrong_number": {
           "description": "Wrong number or the person is not the named operator.",
-          "keywords": ["ખોટો નંબર છે", "હું {employee_name} નથી"],
-          "reply": "અગવડ બદલ માફ કરશો. હું આ અમારા તરફથી સુધારી લઈશ. તમારો આભાર!",
+          "keywords": [
+            "ખોટો નંબર છે",
+            "હું {employee_name} નથી"
+          ],
+          "reply": "ઓહ, માફ કરજો, કદાચ ખોટો નંબર લાગી ગયો. તકલીફ બદલ માફી. આભાર!",
           "outcome": "data_mismatch_flagged",
           "end_call": true
+        },
+        "acknowledged": {
+          "description": "Operator acknowledges the reminder and will punch out.",
+          "keywords": [
+            "બરાબર",
+            "હા કરી લઈશ",
+            "ઓકે",
+            "હા",
+            "કરી દઈશ"
+          ],
+          "reply": "બરાબર, આભાર! નીકળતા પહેલાં પંચ-આઉટ કરી લેજો.",
+          "outcome": "acknowledged",
+          "end_call": true
         }
-      }
+      },
+      "unclear_reprompt": "માફ કરજો, બરાબર સંભળાયું નહીં. નીકળતા પહેલાં પંચ-આઉટ કરી લેશો ને?",
+      "silence_checkin": "હેલો? તમને સંભળાય છે?"
     }
   }
 }

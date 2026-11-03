@@ -453,7 +453,8 @@ param(
     [int]$Port = 8000,
     [ValidateSet('ssh', 'ngrok', 'none')][string]$Tunnel = 'ssh',
     [switch]$NoAutoRecover,
-    [switch]$SkipChecks
+    [switch]$SkipChecks,
+    [switch]$NoTts          # don't start the OmniVoice TTS service (tts_service/)
 )
 
 $ErrorActionPreference = "Stop"
@@ -467,6 +468,9 @@ $envPath    = Join-Path $PSScriptRoot ".env"
 $script:ServerProc = $null
 $script:TunnelProc = $null
 $script:PublicUrl  = $null
+$script:TtsProc    = $null
+$ttsLog     = Join-Path $PSScriptRoot "tts_service.log"
+$ttsPort    = 8100
 
 function Say     ($m) { Write-Host $m }
 function Ok      ($m) { Write-Host "  [OK]   $m"   -ForegroundColor Green }
@@ -608,17 +612,22 @@ function Test-PublicTunnel ([string]$url, [int]$port) {
             return $false
         }
 
-        if ($r.Content -notmatch 'ConversationRelay') {
-            Warn "TwiML endpoint responded but ConversationRelay XML was not found"
+        # Either transport is valid: <Stream> (SCENARIO_VOICE_TRANSPORT=sarvam,
+        # the default) or <ConversationRelay> (=relay). The WebSocket path to
+        # probe is taken from the TwiML itself, so this check follows the
+        # transport setting instead of hardcoding one route.
+        if ($r.Content -notmatch '<(Stream|ConversationRelay)\s[^>]*url="wss://[^/"]+(/[^"]*)"') {
+            Warn "TwiML endpoint responded but no <Stream> or <ConversationRelay> URL was found"
             return $false
         }
+        $wsPath = $Matches[2]
     } catch {
         Warn "TwiML endpoint is not reachable: $($_.Exception.Message)"
         return $false
     }
 
     # 3) The WebSocket route must be reachable through the same tunnel.
-    $wsUri = ($url -replace '^https://', 'wss://') + "/scenarios/media-stream"
+    $wsUri = ($url -replace '^https://', 'wss://') + $wsPath
     $ws = $null
     $cts = $null
 
@@ -690,6 +699,11 @@ function Stop-Everything {
         try { Stop-Process -Id $script:ServerProc.Id -Force -ErrorAction Stop; Ok "server stopped" } catch {}
     }
     Stop-UvicornProcesses | Out-Null
+    if ($script:TtsProc -and -not $script:TtsProc.HasExited) {
+        # Only the TTS service WE started (it is a child powershell -> python tree).
+        & taskkill.exe /PID $script:TtsProc.Id /T /F 2>$null | Out-Null
+        Ok "TTS service stopped"
+    }
     Stop-TunnelProcesses
     Ok "tunnel stopped"
     Say ""
@@ -770,6 +784,49 @@ try {
         }
     }
 
+    # Ollama does the actual GPU inference work on the live-call critical
+    # path - raise its scheduling priority too, not just this server's.
+    # Best-effort and reset every time Ollama itself restarts (its own
+    # process, not something this script owns), so this re-applies it on
+    # every run rather than relying on a one-time manual fix.
+    Get-Process "ollama" -ErrorAction SilentlyContinue | ForEach-Object {
+        try { $_.PriorityClass = 'High' } catch {}
+    }
+
+    # -- 3b. OmniVoice TTS service -------------------------------------
+    # Every spoken line comes from here (tts_service/README.md). Reused if it
+    # is already up; otherwise started and waited for - the model takes ~1
+    # minute to load onto the GPU, and a call placed before that has no voice.
+    if (-not $NoTts) {
+        Section "3b. OmniVoice TTS service"
+        $ttsHealth = "http://127.0.0.1:$ttsPort/health"
+        if (Test-UrlOk $ttsHealth 3) {
+            Ok "already running on port $ttsPort"
+        } else {
+            $ttsScript = Join-Path $PSScriptRoot "tts_service\run-tts.ps1"
+            Remove-Item $ttsLog -ErrorAction SilentlyContinue
+            $script:TtsProc = Start-Process -FilePath "powershell.exe" `
+                -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $ttsScript, "-Port", "$ttsPort") `
+                -RedirectStandardOutput $ttsLog -RedirectStandardError "$ttsLog.err" `
+                -WindowStyle Hidden -PassThru
+            $ttsUp = $false
+            for ($i = 0; $i -lt 180; $i++) {
+                Start-Sleep -Seconds 1
+                if (Test-UrlOk $ttsHealth 3) { $ttsUp = $true; break }
+                if ($script:TtsProc.HasExited) { break }
+            }
+            if ($ttsUp) {
+                Ok "TTS service ready on port $ttsPort (log: tts_service.log)"
+            } else {
+                Warn "TTS service did not come up - calls will have NO VOICE until it does."
+                foreach ($f in "$ttsLog.err", $ttsLog) {
+                    if (Test-Path $f) { Info "--- $f ---"; Get-Content $f -Tail 8 | ForEach-Object { Info $_ } }
+                }
+                Info "Fix: see tts_service/README.md (venv + model). Re-run with -NoTts to skip."
+            }
+        }
+    }
+
     # -- 4. server ----------------------------------------------------
     Section "4. API server"
     Remove-Item $serverLog -ErrorAction SilentlyContinue
@@ -777,6 +834,15 @@ try {
         -ArgumentList @("-u", "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", "$Port") `
         -RedirectStandardOutput $serverLog -RedirectStandardError "$serverLog.err" `
         -WindowStyle Hidden -PassThru
+
+    # Per-process CPU scheduling priority boost - not a system-wide setting,
+    # reverts automatically when this process exits. Helps this server win
+    # CPU time slices over background apps on a live call, where every
+    # millisecond between the caller finishing a sentence and the reply
+    # starting is felt. Best-effort: some sandboxed/restricted accounts
+    # can't change process priority, so a failure here must not stop the
+    # whole script - the server still runs fine at normal priority.
+    try { $script:ServerProc.PriorityClass = 'AboveNormal' } catch { Warn "Could not raise server process priority (non-fatal): $_" }
 
     $up = $false
     for ($i = 0; $i -lt 25; $i++) {

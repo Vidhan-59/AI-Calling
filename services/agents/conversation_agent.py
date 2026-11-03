@@ -34,6 +34,15 @@ from services.tools.registry import ToolTimeoutError, get_tool, invoke_tool, to_
 
 logger = logging.getLogger("conversation_agent")
 
+CALL_CONNECTED_SENTINEL = "[CALL_CONNECTED]"
+"""Synthetic first "user" message run_turn() is called with to produce the
+opening line from the flow graph's entry node objective (there's no fixed
+greeting script to render, unlike Track B's scenario_engine.opening_line()).
+Shared between routers/agent_voice.py (ConversationRelay path) and
+services/voice_pipeline/ (raw Media Streams path) - both need the exact same
+bootstrap turn so a call's history matches what was actually said regardless
+of which live-call transport handled it."""
+
 RECORD_SLOT_TOOL = {
     "name": "record_slot",
     "description": (
@@ -90,6 +99,130 @@ class TurnOutcome:
     (no tool exists that approves leave, transfers money, etc.), so the right
     response to a flagged utterance is visibility for QA/logging, not
     refusing to answer a caller who tripped a keyword heuristic."""
+    spoken_while_streaming: bool = False
+    """True when run_turn was given on_speech and has ALREADY handed
+    text_to_speak to it piece by piece - the caller must not speak it again."""
+
+
+SpeechCallback = Callable[[str], Awaitable[None]]
+
+# Said while a tool call (roster lookup etc.) runs - see _SpeechGate.say_filler.
+# Gender-neutral on purpose: the persona's voice may be either.
+_TOOL_FILLER = {"hi": "जी, एक सेकंड।", "gu": "જી, એક સેકન્ડ.", "en": "Sure, one moment."}
+
+
+class TurnAbandoned(Exception):
+    """Raised by an on_speech callback to stop a streamed turn mid-generation
+    (the caller barged in, or kept talking). It propagates out of run_turn
+    and closes the LLM stream, so generation stops too. Slot fills and tool
+    calls are only applied after a round's stream completes, so a turn
+    abandoned in its first round leaves slot_state untouched."""
+
+
+class _SpeechGate:
+    """Streams one turn's reply to `on_speech` piece by piece (Layer 1),
+    with the output guardrail applied BEFORE each piece is spoken - spoken
+    audio can't be taken back, so every piece is checked together with
+    everything already said this turn. On a BLOCK the rule's deflection is
+    spoken instead and the rest of the turn is dropped, the streaming
+    equivalent of enforce() replacing the whole utterance.
+
+    `hold` buffers everything until the end (no streaming backend).
+
+    `await_disclosure` (the opening turn) holds pieces back only until the
+    AI/recording disclosure has been said, then streams the rest: a
+    compliant opening starts playing a few words in, and one that never
+    discloses gets the legal line prepended at the end, as enforce() would."""
+
+    def __init__(self, on_speech: SpeechCallback, *, guardrail_ids, slot_state: SlotState, hold: bool,
+                 await_disclosure: bool = False, piece_budget=None):
+        from config import settings
+        from services.pipeline.chunker import SpeechChunker
+
+        self._on_speech = on_speech
+        self._guardrail_ids = guardrail_ids
+        self._slot_state = slot_state
+        self.hold = hold
+        self.awaiting_disclosure = await_disclosure
+        self._held: list[str] = []
+        self._chunker = SpeechChunker(
+            first_chunk_words=settings.stream_first_chunk_words, min_chunk_words=settings.stream_min_chunk_words,
+            budget_words=piece_budget,
+        )
+        self.spoken: list[str] = []
+        self.violations: list[GuardrailViolation] = []
+        self.blocked = False
+
+    async def on_text(self, delta: str) -> None:
+        if self.hold or self.blocked:
+            return
+        for piece in self._chunker.feed(delta):
+            await self._offer(piece)
+
+    async def end_round(self) -> None:
+        if self.hold or self.blocked:
+            return
+        for piece in self._chunker.flush():
+            await self._offer(piece)
+
+    async def _offer(self, piece: str) -> None:
+        if not self.awaiting_disclosure:
+            await self._speak(piece)
+            return
+        from services.guardrails.output import _discloses_ai_and_recording
+
+        self._held.append(piece)
+        if _discloses_ai_and_recording(" ".join(self._held)):
+            self.awaiting_disclosure = False
+            held, self._held = self._held, []
+            for p in held:
+                await self._speak(p)
+
+    async def finish_undisclosed(self, language: str) -> None:
+        """End of an opening turn that never disclosed: the legal line first,
+        then what the model said."""
+        from services.guardrails.output import _DISCLOSURE_PREPEND
+
+        self.awaiting_disclosure = False
+        held, self._held = self._held, []
+        for p in [_DISCLOSURE_PREPEND.get(language, _DISCLOSURE_PREPEND["hi"]).strip(), *held]:
+            await self._speak(p)
+
+    async def say_filler(self, language: str) -> None:
+        """A tool call means a second LLM round before the real answer; say
+        a short acknowledgement now so the caller isn't left in silence."""
+        await self._speak(_TOOL_FILLER.get(language, _TOOL_FILLER["hi"]))
+
+    async def speak_all(self, text: str) -> None:
+        from services.pipeline.chunker import split_sentences
+
+        for piece in split_sentences(text):
+            self.spoken.append(piece)
+            await self._on_speech(piece)
+
+    async def _speak(self, piece: str) -> None:
+        from services.guardrails.output import check_output_text
+        from services.guardrails.rules import GUARDRAIL_CATALOG, Severity
+
+        candidate = " ".join([*self.spoken, piece])
+        blocking = [
+            v for v in check_output_text(
+                candidate, guardrail_ids=self._guardrail_ids,
+                roster_available=self._slot_state.roster_available,
+            )
+            if v.severity == Severity.BLOCK
+        ]
+        if blocking:
+            self.blocked = True
+            top = blocking[0]
+            self.violations.append(top)
+            rule = GUARDRAIL_CATALOG.get(top.rule_id)
+            deflection = top.deflection or (rule.deflection if rule else "Main is baare mein abhi baat nahi kar sakta.")
+            self.spoken.append(deflection)
+            await self._on_speech(deflection)
+            return
+        self.spoken.append(piece)
+        await self._on_speech(piece)
 
 
 def _coerce_slot_value(raw: str) -> Any:
@@ -117,6 +250,56 @@ def _default_llm_call() -> LLMCall:
     return generate_conversation_turn
 
 
+def _default_stream_llm_call():
+    """Streaming counterpart of _default_llm_call, same LLM_BACKEND switch."""
+    from local_ai import config as local_ai_config
+
+    if local_ai_config.LLM_BACKEND == "local":
+        from local_ai.llm_engine import generate_conversation_turn_stream as local_stream
+
+        return local_stream
+    from services.claude_client import generate_conversation_turn_stream
+
+    return generate_conversation_turn_stream
+
+
+def _turn_prompt(*, agent_id, flow_graph, slot_state, contact, language, extra_vars=None, supervisor_guidance=None):
+    """(system prompt, tool schemas) for the turn at slot_state's current node."""
+    config = agent_registry.get_agent_config(agent_id)
+    if not slot_state.current_node_id:
+        slot_state.current_node_id = flow_graph.entry
+    node = flow_graph.node(slot_state.current_node_id)
+    system_prompt = prompt_resolver.render_system_prompt(
+        agent_id=agent_id,
+        guardrail_ids=config.guardrails,
+        node=node,
+        slot_state=slot_state,
+        contact=contact,
+        language=language,
+        extra_vars=extra_vars,
+        supervisor_guidance=supervisor_guidance,
+    )
+    return system_prompt, [RECORD_SLOT_TOOL] + [to_claude_tool_schema(t) for t in node.tools]
+
+
+async def prewarm_next_turn(*, agent_id, flow_graph, slot_state, contact, language, history) -> None:
+    """Think ahead while the bot is still talking (Layer 1): the next turn's
+    prompt only changes by the caller's not-yet-spoken words, so the local
+    LLM processes everything else now. Measured: the first turn at a new
+    flow node took ~490ms to its first words, ~200ms with the cache warm.
+    Local backend only - Claude's own prompt caching is per request."""
+    from local_ai import config as local_ai_config
+
+    if local_ai_config.LLM_BACKEND != "local":
+        return
+    from local_ai.llm_engine import prime_conversation_turn
+
+    system_prompt, tool_schemas = _turn_prompt(
+        agent_id=agent_id, flow_graph=flow_graph, slot_state=slot_state, contact=contact, language=language,
+    )
+    await prime_conversation_turn(system_prompt, history, tools=tool_schemas)
+
+
 async def run_turn(
     *,
     session,
@@ -130,7 +313,18 @@ async def run_turn(
     extra_vars: dict[str, Any] | None = None,
     supervisor_guidance: str | None = None,
     llm_call: LLMCall | None = None,
+    on_speech: SpeechCallback | None = None,
+    stream_llm_call=None,
+    piece_budget=None,
 ) -> TurnOutcome:
+    """`on_speech` turns on Layer 1 streaming: the reply is spoken piece by
+    piece while the LLM is still generating (first piece after a few words),
+    through the same guardrails, and the returned TurnOutcome says so via
+    spoken_while_streaming. `stream_llm_call` overrides the streaming backend
+    (tests); an explicit `llm_call` without one falls back to speaking the
+    finished reply in sentence pieces."""
+    if on_speech is not None and stream_llm_call is None and llm_call is None:
+        stream_llm_call = _default_stream_llm_call()
     llm_call = llm_call or _default_llm_call()
     config = agent_registry.get_agent_config(agent_id)
 
@@ -149,37 +343,47 @@ async def run_turn(
             call_id, latest_user_text,
         )
 
-    if not slot_state.current_node_id:
-        slot_state.current_node_id = flow_graph.entry
-    node = flow_graph.node(slot_state.current_node_id)
-
-    system_prompt = prompt_resolver.render_system_prompt(
-        agent_id=agent_id,
-        guardrail_ids=config.guardrails,
-        node=node,
-        slot_state=slot_state,
-        contact=contact,
-        language=language,
-        extra_vars=extra_vars,
-        supervisor_guidance=supervisor_guidance,
+    system_prompt, tool_schemas = _turn_prompt(
+        agent_id=agent_id, flow_graph=flow_graph, slot_state=slot_state, contact=contact,
+        language=language, extra_vars=extra_vars, supervisor_guidance=supervisor_guidance,
     )
-    tool_schemas = [RECORD_SLOT_TOOL] + [to_claude_tool_schema(t) for t in node.tools]
     # configs/agents/*.yaml's llm.conversation.model names a Claude model
     # (e.g. "claude-haiku-4-5") - meaningless to local_ai's Ollama engine,
     # which serves exactly one model (local_ai.config.OLLAMA_MODEL). Pass
     # the configured name through only when actually talking to Claude;
     # None lets a non-Claude llm_call (the local engine, or a test's
     # FakeLLM, which ignores it) fall back to its own default.
-    model_name = config.llm.conversation.model if llm_call is generate_conversation_turn else None
+    from services.claude_client import generate_conversation_turn_stream as claude_stream
 
-    result = await llm_call(
-        system_prompt,
-        history,
-        model=model_name,
-        tools=tool_schemas,
-        max_tokens=config.llm.conversation.max_tokens,
-        temperature=config.llm.conversation.temperature,
+    talks_to_claude = (
+        stream_llm_call is claude_stream if stream_llm_call is not None
+        else llm_call is generate_conversation_turn
     )
+    model_name = config.llm.conversation.model if talks_to_claude else None
+
+    gate = None
+    if on_speech is not None:
+        gate = _SpeechGate(
+            on_speech, guardrail_ids=config.guardrails, slot_state=slot_state,
+            hold=stream_llm_call is None,
+            await_disclosure=slot_state.turn_count == 0 and "disclose_ai_and_recording" in config.guardrails,
+            piece_budget=piece_budget,
+        )
+
+    async def call_llm(messages: list[dict[str, Any]]):
+        kwargs = dict(
+            model=model_name,
+            tools=tool_schemas,
+            max_tokens=config.llm.conversation.max_tokens,
+            temperature=config.llm.conversation.temperature,
+        )
+        if gate is not None and stream_llm_call is not None:
+            out = await stream_llm_call(system_prompt, messages, on_text=gate.on_text, **kwargs)
+            await gate.end_round()
+            return out
+        return await llm_call(system_prompt, messages, **kwargs)
+
+    result = await call_llm(history)
 
     tool_call_logs: list[ToolCallLog] = []
     terminal_decision: dict[str, Any] | None = None
@@ -194,6 +398,9 @@ async def run_turn(
             slot_state.fill(slot_name, _coerce_slot_value(str(sc.input.get("value", ""))))
 
     if real_tool_calls:
+        logger.info("[%s] tool round: %s", call_id, [tc.name for tc in real_tool_calls])
+        if gate is not None and not gate.hold and not gate.awaiting_disclosure and not gate.spoken:
+            await gate.say_filler(language)
         tool_result_blocks = []
         for tc in real_tool_calls:
             try:
@@ -230,19 +437,17 @@ async def run_turn(
             {"role": "assistant", "content": result.raw_content},
             {"role": "user", "content": tool_result_blocks},
         ]
-        follow_up = await llm_call(
-            system_prompt,
-            follow_up_messages,
-            model=model_name,
-            tools=tool_schemas,
-            max_tokens=config.llm.conversation.max_tokens,
-            temperature=config.llm.conversation.temperature,
-        )
+        follow_up = await call_llm(follow_up_messages)
         for sc in [tc for tc in follow_up.tool_calls if tc.name == "record_slot"]:
             slot_name = sc.input.get("slot")
             if slot_name:
                 slot_state.fill(slot_name, _coerce_slot_value(str(sc.input.get("value", ""))))
-        final_text = follow_up.text or final_text
+        if gate is not None and not gate.hold:
+            # Streamed: anything said before the tool call was already spoken,
+            # so the whole turn's text is both rounds, not just the last one.
+            final_text = " ".join(t for t in (final_text, follow_up.text) if t)
+        else:
+            final_text = follow_up.text or final_text
         tokens_in += follow_up.tokens_in
         tokens_out += follow_up.tokens_out
 
@@ -250,7 +455,21 @@ async def run_turn(
         final_text,
         guardrail_ids=config.guardrails,
         roster_available=slot_state.roster_available,
+        is_first_turn=slot_state.turn_count == 0,
+        language=language,
     )
+    if gate is not None:
+        if gate.hold:
+            await gate.speak_all(safe_text)
+        else:
+            if gate.awaiting_disclosure:
+                await gate.finish_undisclosed(language)
+            # What the caller actually heard - each piece already passed the
+            # guardrail on its way out (see _SpeechGate).
+            safe_text = " ".join(gate.spoken)
+            seen = {v.rule_id for v in violations}
+            violations += [v for v in gate.violations if v.rule_id not in seen]
+    spoken_while_streaming = gate is not None
 
     slot_state.turn_count += 1
 
@@ -265,6 +484,7 @@ async def run_turn(
             tokens_in=tokens_in,
             tokens_out=tokens_out,
             input_injection_flagged=input_injection_flagged,
+            spoken_while_streaming=spoken_while_streaming,
         )
 
     next_id = flow_graph.next_node_id(slot_state.current_node_id, slot_state.context())
@@ -290,4 +510,5 @@ async def run_turn(
         tokens_in=tokens_in,
         tokens_out=tokens_out,
         input_injection_flagged=input_injection_flagged,
+        spoken_while_streaming=spoken_while_streaming,
     )

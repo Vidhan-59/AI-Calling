@@ -7,7 +7,7 @@
   },
   "variable": [
     { "key": "base_url", "value": "http://127.0.0.1:8000", "type": "string" },
-    { "key": "to_phone_number", "value": "+919426005911", "type": "string" },
+    { "key": "to_phone_number", "value": "+91XXXXXXXXXX", "type": "string" },
     { "key": "employee_name", "value": "Amit", "type": "string" },
     { "key": "terminal", "value": "CT3", "type": "string" },
     { "key": "supervisor_name", "value": "Suresh", "type": "string" },
@@ -334,7 +334,7 @@
                 "exec": [
                   "const b = pm.response.json();",
                   "pm.test('opens with haan but classified as no', () => pm.expect(b.matched_branch).to.eql('no'));",
-                  "pm.test('reason auto-extracted, so no second question', () => pm.expect(b.call_ended).to.be.true);",
+                  "pm.test('still asks WHY - the reason is compulsory', () => pm.expect(b.call_ended).to.be.false);",
                   "console.log('branch:', b.matched_branch, '| collected:', JSON.stringify(b.collected));"
                 ]
               }
@@ -353,7 +353,7 @@
               "host": ["{{base_url}}"],
               "path": ["scenarios", "test-turn"]
             },
-            "description": "**This is the request that shows why the AI matters.**\n\nThe utterance opens with *haan* (yes) but means no. A keyword-matching IVR records the exact opposite answer. The classifier gets it right, and because the reason was volunteered in the same breath it skips the redundant \"tell us why\" question and closes in one turn."
+            "description": "**This is the request that shows why the AI matters.**\n\nThe utterance opens with *haan* (yes) but means no. A keyword-matching IVR records the exact opposite answer. The classifier gets it right. The reason is compulsory, so the agent still asks why even though one was volunteered in the same breath - send the reason as the next turn (same session_id) to close the call."
           }
         },
         {

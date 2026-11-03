@@ -7,7 +7,13 @@
   "max_attempts": 2,
   "no_answer_outcome": "no_response",
   "no_answer_action": "Supervisor notified.",
-  "required_facts": ["employee_name", "date", "time", "shift_name", "terminal"],
+  "required_facts": [
+    "employee_name",
+    "date",
+    "time",
+    "shift_name",
+    "terminal"
+  ],
   "knowledge_base": [
     "This call only confirms shift attendance. It cannot approve or reject leave.",
     "Salary, wages, OT rates and payment questions must be deferred to HR or the app - never answered on this call.",
@@ -22,186 +28,298 @@
       "tts_language": "en-IN",
       "transcription_language": "en-IN",
       "voice": "en-IN-Neural2-B",
-      "opening": "Hello {employee_name}, this is ShiftEaze calling to confirm your duty. Your next duty is scheduled on {date} at {time} in the {shift_name} shift. Will you be attending your duty? Please answer yes or no.",
-      "attempt_2_opening": "Hello {employee_name}, we still need your confirmation for {date} {time}. Should I mark you as attending? Please answer yes or no.",
-      "silence_reply": "It seems you're unable to respond right now. Thank you!",
+      "opening": "Hi {employee_name}, this is ShiftEaze calling. Your next duty is on {date} at {time}, in the {shift_name} shift. Will you be coming in?",
+      "attempt_2_opening": "Hi {employee_name}, ShiftEaze again. We didn't hear back about your duty on {date} at {time}. Will you be able to make it?",
+      "silence_reply": "Looks like we can't connect right now. I'll try you again a bit later. Thank you!",
       "branches": {
         "yes": {
           "description": "Operator confirms they will attend the shift.",
-          "keywords": ["yes", "yeah", "I'll come", "I will attend", "sure", "ok I'm coming"],
-          "reply": "Your attendance has been recorded. Thank you!",
+          "keywords": [
+            "yes",
+            "yeah",
+            "I'll come",
+            "I will attend",
+            "sure",
+            "ok I'm coming"
+          ],
+          "reply": "Great, I've noted that down. Thanks, have a good day!",
           "outcome": "confirmed",
           "end_call": true
         },
         "no": {
           "description": "Operator says they will not attend / cannot come.",
-          "keywords": ["no", "can't come", "won't attend", "not coming", "no I won't"],
-          "reply": "Please tell us the reason for your absence.",
+          "keywords": [
+            "no",
+            "can't come",
+            "won't attend",
+            "not coming",
+            "no I won't"
+          ],
+          "reply": "No problem. Could you just tell me why you won't be able to make it?",
           "collect": "absence_reason",
-          "after_collect_reply": "Your information has been recorded. Thank you!",
+          "after_collect_reply": "Got it, thank you. I've let the planning team know. Take care!",
           "outcome": "absent_with_reason",
           "end_call": true
         },
         "repeat": {
           "description": "Operator asks to repeat the time, date or terminal.",
-          "keywords": ["what time", "which terminal", "say again", "repeat that", "what was the time"],
-          "reply": "Your duty is on {date} at {time} in {terminal}. Will you be attending? Please answer yes or no.",
+          "keywords": [
+            "what time",
+            "which terminal",
+            "say again",
+            "repeat that",
+            "what was the time"
+          ],
+          "reply": "Sure. Your duty is on {date} at {time}, at {terminal}. Will you be coming in?",
           "outcome": "awaiting_response",
           "end_call": false
         },
         "dispute": {
           "description": "Operator disputes the shift information - says it is not their shift or is wrong.",
-          "keywords": ["this isn't my shift", "that's wrong", "I'm not on this duty", "that's a mistake"],
-          "reply": "I understand. I'm noting this down for the planning team to check. Thank you!",
+          "keywords": [
+            "this isn't my shift",
+            "that's wrong",
+            "I'm not on this duty",
+            "that's a mistake"
+          ],
+          "reply": "Okay, I understand. I'll flag this to the planning team so they can check it. Thank you!",
           "outcome": "disputed_flagged_to_planner",
           "end_call": true
         },
         "already_confirmed": {
           "description": "Operator says they already confirmed on the app.",
-          "keywords": ["I already confirmed", "I did it on the app", "already done"],
-          "reply": "Thank you, that's noted. Have a good day!",
+          "keywords": [
+            "I already confirmed",
+            "I did it on the app",
+            "already done"
+          ],
+          "reply": "Oh, great! I've noted that. Thank you!",
           "outcome": "confirmed_self_reported_verify",
           "end_call": true
         },
         "supervisor": {
           "description": "Operator wants to speak to a supervisor or a human.",
-          "keywords": ["talk to my supervisor", "connect me to a person", "I want to speak to someone"],
-          "reply": "I'll pass this on to your supervisor, {supervisor_name}, who will reach out to you. Thank you!",
+          "keywords": [
+            "talk to my supervisor",
+            "connect me to a person",
+            "I want to speak to someone"
+          ],
+          "reply": "Sure, I'll let your supervisor know, and they'll get in touch with you. Thank you!",
           "outcome": "escalated_supervisor_notified",
           "end_call": true
         },
         "wrong_number": {
           "description": "Wrong number or the person is not the named operator.",
-          "keywords": ["wrong number", "this isn't {employee_name}", "who is this"],
-          "reply": "I'm sorry for the inconvenience. I'll correct this on our end. Thank you!",
+          "keywords": [
+            "wrong number",
+            "this isn't {employee_name}",
+            "who is this"
+          ],
+          "reply": "Oh, I'm sorry, I must have the wrong number. Apologies for the trouble. Thank you!",
           "outcome": "data_mismatch_flagged",
           "end_call": true
         }
-      }
+      },
+      "unclear_reprompt": "Sorry, I didn't quite catch that. Will you be coming in for your duty?",
+      "reason_reprompt": "Sure. Could you just tell me the reason you can't make it?",
+      "silence_checkin": "Hello? Can you hear me?"
     },
     "hi": {
       "language_name": "Hindi",
       "tts_language": "hi-IN",
       "transcription_language": "hi-IN",
       "voice": "hi-IN-Neural2-B",
-      "opening": "नमस्ते {employee_name}, मैं ShiftEaze की ओर से आपकी ड्यूटी की पुष्टि के लिए कॉल कर रहा हूँ। आपकी अगली ड्यूटी {date} को {time} बजे {shift_name} शिफ्ट में निर्धारित है। क्या आप अपनी ड्यूटी पर आएँगे? कृपया 'हाँ' या 'नहीं' में उत्तर दें।",
-      "attempt_2_opening": "हेलो {employee_name} भाई, आपका कन्फर्मेशन अभी तक नहीं आया {date} {time} के लिए। मैं आपको अटेंडिंग मार्क कर दूं? कृपया 'हाँ' या 'नहीं' में उत्तर दें।",
-      "silence_reply": "ऐसा लगता है कि आप अभी उत्तर नहीं दे पा रहे हैं। आपका धन्यवाद!",
+      "opening": "नमस्ते {employee_name} जी, मैं शिफ्टईज़ से बोल रही हूँ। आपकी अगली ड्यूटी {date} को {time} बजे, {shift_name} शिफ्ट में है। आप आ रहे हैं ना?",
+      "attempt_2_opening": "नमस्ते {employee_name} जी, शिफ्टईज़ से दोबारा बोल रही हूँ। {date} को {time} बजे वाली ड्यूटी के लिए आपका जवाब नहीं मिला था। आप आ पाएंगे?",
+      "silence_reply": "लगता है अभी बात नहीं हो पा रही। मैं बाद में दोबारा कॉल कर लूँगी। धन्यवाद!",
       "branches": {
         "yes": {
           "description": "Operator confirms they will attend the shift.",
-          "keywords": ["हाँ", "जी हाँ", "आऊँगा", "आऊँगी", "यस", "Yes"],
-          "reply": "आपकी उपस्थिति दर्ज कर ली गई है। आपका धन्यवाद!",
+          "keywords": [
+            "हाँ",
+            "जी हाँ",
+            "आऊँगा",
+            "आऊँगी",
+            "यस",
+            "Yes"
+          ],
+          "reply": "बहुत बढ़िया, मैंने नोट कर लिया। धन्यवाद, आपका दिन अच्छा रहे!",
           "outcome": "confirmed",
           "end_call": true
         },
         "no": {
           "description": "Operator says they will not attend / cannot come.",
-          "keywords": ["नहीं", "जी नहीं", "नहीं आ सकता", "नहीं आऊँगा", "नहीं आऊँगी", "नो", "No"],
-          "reply": "कृपया अपनी अनुपस्थिति का कारण बताएँ।",
+          "keywords": [
+            "नहीं",
+            "जी नहीं",
+            "नहीं आ सकता",
+            "नहीं आऊँगा",
+            "नहीं आऊँगी",
+            "नो",
+            "No"
+          ],
+          "reply": "कोई बात नहीं। बस इतना बता दीजिए, किस वजह से नहीं आ पाएंगे?",
           "collect": "absence_reason",
-          "after_collect_reply": "आपकी जानकारी दर्ज कर ली गई है। आपका धन्यवाद!",
+          "after_collect_reply": "ठीक है, समझ गई। मैंने प्लानिंग टीम को बता दिया है। अपना ध्यान रखिए, धन्यवाद!",
           "outcome": "absent_with_reason",
           "end_call": true
         },
         "repeat": {
           "description": "Operator asks to repeat the time, date or terminal.",
-          "keywords": ["फिर से बताइए", "समय क्या था", "कौन सा टर्मिनल", "दोबारा बताएं"],
-          "reply": "आपकी ड्यूटी {date} को {time} बजे {terminal} में है। क्या आप आएँगे? कृपया 'हाँ' या 'नहीं' में उत्तर दें।",
+          "keywords": [
+            "फिर से बताइए",
+            "समय क्या था",
+            "कौन सा टर्मिनल",
+            "दोबारा बताएं"
+          ],
+          "reply": "जी, ज़रूर। आपकी ड्यूटी {date} को {time} बजे, {terminal} में है। आप आ रहे हैं ना?",
           "outcome": "awaiting_response",
           "end_call": false
         },
         "dispute": {
           "description": "Operator disputes the shift information - says it is not their shift or is wrong.",
-          "keywords": ["यह मेरी ड्यूटी नहीं है", "यह गलत है", "यह ठीक नहीं है"],
-          "reply": "समझ गया। मैं यह बात प्लानिंग टीम को जांच के लिए दर्ज कर रहा हूँ। आपका धन्यवाद!",
+          "keywords": [
+            "यह मेरी ड्यूटी नहीं है",
+            "यह गलत है",
+            "यह ठीक नहीं है"
+          ],
+          "reply": "अच्छा, ठीक है। मैं यह प्लानिंग टीम को बता देती हूँ, वो इसे चेक कर लेंगे। धन्यवाद!",
           "outcome": "disputed_flagged_to_planner",
           "end_call": true
         },
         "already_confirmed": {
           "description": "Operator says they already confirmed on the app.",
-          "keywords": ["मैंने ऐप पर कन्फर्म कर दिया है", "पहले से कन्फर्म है", "हो गया है"],
-          "reply": "धन्यवाद, यह दर्ज कर लिया गया है। आपका दिन शुभ हो!",
+          "keywords": [
+            "मैंने ऐप पर कन्फर्म कर दिया है",
+            "पहले से कन्फर्म है",
+            "हो गया है"
+          ],
+          "reply": "अरे, बढ़िया! ठीक है, मैंने नोट कर लिया। धन्यवाद!",
           "outcome": "confirmed_self_reported_verify",
           "end_call": true
         },
         "supervisor": {
           "description": "Operator wants to speak to a supervisor or a human.",
-          "keywords": ["मुझे सुपरवाइज़र से बात करनी है", "किसी इंसान से बात करानी है"],
-          "reply": "मैं यह बात आपके सुपरवाइज़र {supervisor_name} को बता दूंगा, वे आपसे संपर्क करेंगे। आपका धन्यवाद!",
+          "keywords": [
+            "मुझे सुपरवाइज़र से बात करनी है",
+            "किसी इंसान से बात करानी है"
+          ],
+          "reply": "ठीक है, मैं आपके सुपरवाइज़र को बता देती हूँ, वो आपसे बात कर लेंगे। धन्यवाद!",
           "outcome": "escalated_supervisor_notified",
           "end_call": true
         },
         "wrong_number": {
           "description": "Wrong number or the person is not the named operator.",
-          "keywords": ["गलत नंबर है", "मैं {employee_name} नहीं हूं", "यह कौन बोल रहा है"],
-          "reply": "असुविधा के लिए क्षमा करें। मैं इसे अपनी तरफ से ठीक करवा दूंगा। आपका धन्यवाद!",
+          "keywords": [
+            "गलत नंबर है",
+            "मैं {employee_name} नहीं हूं",
+            "यह कौन बोल रहा है"
+          ],
+          "reply": "ओह, माफ़ कीजिए, शायद गलत नंबर लग गया। परेशानी के लिए माफ़ी चाहती हूँ। धन्यवाद!",
           "outcome": "data_mismatch_flagged",
           "end_call": true
         }
-      }
+      },
+      "unclear_reprompt": "माफ़ कीजिए, ठीक से सुनाई नहीं दिया। आप ड्यूटी पर आ रहे हैं, या नहीं?",
+      "reason_reprompt": "जी, समझ गई। बस वजह बता दीजिए, किस कारण से नहीं आ पाएंगे?",
+      "silence_checkin": "हेलो? आप सुन पा रहे हैं?"
     },
     "gu": {
       "language_name": "Gujarati",
       "tts_language": "gu-IN",
       "transcription_language": "gu-IN",
       "voice": "gu-IN-Wavenet-B",
-      "opening": "નમસ્તે {employee_name}, હું ShiftEaze તરફથી તમારી ડ્યુટીની પુષ્ટિ માટે કૉલ કરી રહ્યો છું. તમારી આગામી ડ્યુટી {date} ના રોજ {time} વાગ્યે {shift_name} શિફ્ટમાં નિર્ધારિત છે. શું તમે તમારી ડ્યુટી પર આવશો? કૃપા કરી 'હા' અથવા 'ના' માં જવાબ આપો.",
-      "attempt_2_opening": "હેલો {employee_name} ભાઈ, તમારું કન્ફર્મેશન હજુ સુધી આવ્યું નથી {date} {time} માટે. હું તમને અટેન્ડિંગ માર્ક કરી દઉં? કૃપા કરી 'હા' અથવા 'ના' માં જવાબ આપો.",
-      "silence_reply": "એવું લાગે છે કે તમે અત્યારે જવાબ આપી શકતા નથી. તમારો આભાર!",
+      "opening": "નમસ્તે {employee_name}, હું શિફ્ટઈઝ માંથી બોલું છું. તમારી આગલી ડ્યુટી {date} ના રોજ {time} વાગ્યે, {shift_name} શિફ્ટમાં છે. તમે આવો છો ને?",
+      "attempt_2_opening": "નમસ્તે {employee_name}, શિફ્ટઈઝ માંથી ફરી બોલું છું. {date} ના {time} વાગ્યાની ડ્યુટી માટે તમારો જવાબ નથી મળ્યો. તમે આવી શકશો?",
+      "silence_reply": "લાગે છે અત્યારે વાત નથી થઈ શકતી. હું થોડી વાર પછી ફરી ફોન કરીશ. આભાર!",
       "branches": {
         "yes": {
           "description": "Operator confirms they will attend the shift.",
-          "keywords": ["હા", "જી હા", "આવીશ", "આવીશું", "yes"],
-          "reply": "તમારી હાજરી નોંધી લેવામાં આવી છે. તમારો આભાર!",
+          "keywords": [
+            "હા",
+            "જી હા",
+            "આવીશ",
+            "આવીશું",
+            "yes"
+          ],
+          "reply": "સરસ, મેં નોંધ કરી લીધી છે. આભાર, તમારો દિવસ સારો જાય!",
           "outcome": "confirmed",
           "end_call": true
         },
         "no": {
           "description": "Operator says they will not attend / cannot come.",
-          "keywords": ["ના", "નહીં", "નહીં આવી શકું", "નહીં આવીશ", "no"],
-          "reply": "કૃપા કરી તમારી ગેરહાજરીનું કારણ જણાવો.",
+          "keywords": [
+            "ના",
+            "નહીં",
+            "નહીં આવી શકું",
+            "નહીં આવીશ",
+            "no"
+          ],
+          "reply": "કંઈ વાંધો નહીં. બસ એટલું કહી દો, કયા કારણે નહીં આવી શકો?",
           "collect": "absence_reason",
-          "after_collect_reply": "તમારી માહિતી નોંધી લેવામાં આવી છે. તમારો આભાર!",
+          "after_collect_reply": "બરાબર, સમજી ગઈ. મેં પ્લાનિંગ ટીમને જણાવી દીધું છે. તમારું ધ્યાન રાખજો, આભાર!",
           "outcome": "absent_with_reason",
           "end_call": true
         },
         "repeat": {
           "description": "Operator asks to repeat the time, date or terminal.",
-          "keywords": ["ફરી કહો", "સમય શું હતો", "કયું ટર્મિનલ", "ફરીથી જણાવો"],
-          "reply": "તમારી ડ્યુટી {date} ના રોજ {time} વાગ્યે {terminal} મા છે. શું તમે આવશો? કૃપા કરી 'હા' અથવા 'ના' માં જવાબ આપો.",
+          "keywords": [
+            "ફરી કહો",
+            "સમય શું હતો",
+            "કયું ટર્મિનલ",
+            "ફરીથી જણાવો"
+          ],
+          "reply": "હા, જરૂર. તમારી ડ્યુટી {date} ના રોજ {time} વાગ્યે, {terminal} માં છે. તમે આવો છો ને?",
           "outcome": "awaiting_response",
           "end_call": false
         },
         "dispute": {
           "description": "Operator disputes the shift information - says it is not their shift or is wrong.",
-          "keywords": ["આ મારી ડ્યુટી નથી", "આ ખોટું છે", "આ બરાબર નથી"],
-          "reply": "સમજાયું. હું આ વાત પ્લાનિંગ ટીમને ચકાસવા માટે નોંધી રહ્યો છું. તમારો આભાર!",
+          "keywords": [
+            "આ મારી ડ્યુટી નથી",
+            "આ ખોટું છે",
+            "આ બરાબર નથી"
+          ],
+          "reply": "સારું, બરાબર. હું પ્લાનિંગ ટીમને જણાવી દઉં છું, તેઓ ચેક કરી લેશે. આભાર!",
           "outcome": "disputed_flagged_to_planner",
           "end_call": true
         },
         "already_confirmed": {
           "description": "Operator says they already confirmed on the app.",
-          "keywords": ["મેં એપ પર કન્ફર્મ કરી દીધું છે", "પહેલેથી કન્ફર્મ છે", "થઈ ગયું છે"],
-          "reply": "આભાર, આ નોંધી લેવામાં આવ્યું છે. તમારો દિવસ શુભ રહે!",
+          "keywords": [
+            "મેં એપ પર કન્ફર્મ કરી દીધું છે",
+            "પહેલેથી કન્ફર્મ છે",
+            "થઈ ગયું છે"
+          ],
+          "reply": "અરે, સરસ! મેં નોંધ કરી લીધી છે. આભાર!",
           "outcome": "confirmed_self_reported_verify",
           "end_call": true
         },
         "supervisor": {
           "description": "Operator wants to speak to a supervisor or a human.",
-          "keywords": ["મારે સુપરવાઇઝર સાથે વાત કરવી છે", "કોઈ વ્યક્તિ સાથે વાત કરાવો"],
-          "reply": "હું આ વાત તમારા સુપરવાઇઝર {supervisor_name} ને જણાવીશ, તેઓ તમારો સંપર્ક કરશે. તમારો આભાર!",
+          "keywords": [
+            "મારે સુપરવાઇઝર સાથે વાત કરવી છે",
+            "કોઈ વ્યક્તિ સાથે વાત કરાવો"
+          ],
+          "reply": "બરાબર, હું તમારા સુપરવાઇઝરને જણાવી દઉં છું, તેઓ તમારી સાથે વાત કરશે. આભાર!",
           "outcome": "escalated_supervisor_notified",
           "end_call": true
         },
         "wrong_number": {
           "description": "Wrong number or the person is not the named operator.",
-          "keywords": ["ખોટો નંબર છે", "હું {employee_name} નથી", "આ કોણ બોલે છે"],
-          "reply": "અગવડ બદલ માફ કરશો. હું આ અમારા તરફથી સુધારી લઈશ. તમારો આભાર!",
+          "keywords": [
+            "ખોટો નંબર છે",
+            "હું {employee_name} નથી",
+            "આ કોણ બોલે છે"
+          ],
+          "reply": "ઓહ, માફ કરજો, કદાચ ખોટો નંબર લાગી ગયો. તકલીફ બદલ માફી. આભાર!",
           "outcome": "data_mismatch_flagged",
           "end_call": true
         }
-      }
+      },
+      "unclear_reprompt": "માફ કરજો, બરાબર સંભળાયું નહીં. તમે ડ્યુટી પર આવો છો કે નહીં?",
+      "reason_reprompt": "હા, સમજી ગઈ. બસ કારણ કહી દો, કેમ નહીં આવી શકો?",
+      "silence_checkin": "હેલો? તમને સંભળાય છે?"
     }
   }
 }

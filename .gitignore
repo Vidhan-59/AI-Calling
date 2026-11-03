@@ -1,59 +1,97 @@
-# Environment variables
+# =====================================================================
+#  ShiftEaze AI Calling (OmniVoice edition) - what must NEVER be committed
+# =====================================================================
+
+# --- Secrets / local configuration ------------------------------------
+# .env holds Twilio, Sarvam and other keys. Only .env.example is tracked.
 .env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
 
-# Python
+# --- Runtime data (databases, call recordings/transcripts, voices) -----
+# Contains real phone numbers and call transcripts, and the voice library
+# holds people's voice samples - never publish any of it.
+data/
+*.db
+*.sqlite
+*.sqlite3
+voice_assignments.json
+tts_cache/
+
+# --- Python ------------------------------------------------------------
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
+*.py[cod]
 *.so
-
-# Virtual environment
+.Python
 venv/
+.venv/
 env/
 ENV/
+*.egg-info/
+build/
+dist/
+.eggs/
+pip-wheel-metadata/
 
-# IDE
+# --- Virtual environments / installs for the TTS service ----------------
+tts_service/.venv/
+tts_service/install.*
+
+# --- Models and large binaries (downloaded on first run, not source) ----
+*.onnx
+*.onnx.json
+*.safetensors
+*.pt
+*.pth
+*.bin
+*.gguf
+*.ct2
+local_ai/voices/
+omnivoice-model/
+stt_models/
+whisper-*/
+*.whl
+
+# --- Audio produced while running or testing -----------------------------
+*.wav
+*.pcm
+*.mp3
+*.ogg
+*.flac
+# (the tracked STT benchmark clips live outside the repo: data/stt_testset)
+
+# --- Logs and run artifacts -------------------------------------------
+*.log
+*.log.*
+*.err
+server.log
+server.log.err
+tunnel.log
+tunnel.log.err
+tts_service.log
+tts_service.log.err
+run-all-output.log
+*.tmp
+*.temp
+*.tmp.txt
+tools/simulate_last_run.log
+
+# --- Tests / tooling caches --------------------------------------------
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# --- Editors / OS / assistants -------------------------------------------
 .vscode/
 .idea/
 *.swp
 *.swo
-
-# OS
 .DS_Store
 Thumbs.db
-
-# Logs
-*.log
-
-# Testing
-.pytest_cache/
-.coverage
-htmlcov/
-
-# Type checking
-.mypy_cache/
-
-# Temporary files
-*.tmp
-*.temp
-
-# Local SQLite database (agents, calls, transcripts)
-data/
-*.db
-
-# Local run artifacts
-server.log
-*.tmp.txt
-tunnel.log
-server_err.log
-*.log.err
-run-all-output.log
-
-# Downloaded model assets (faster-whisper cache, Piper voice models) -
-# multi-hundred-MB binaries fetched on first run, not source code. See
-# LOCAL_AI_README.md "First-run downloads".
-local_ai/voices/
-*.onnx
-*.onnx.json
+desktop.ini
+.claude/

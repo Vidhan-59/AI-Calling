@@ -67,7 +67,7 @@ class ScenarioCallRequest(BaseModel):
         description="shift_confirm | punch_in_remind | absence_priority | ot_request | punch_out_remind",
     )
     language: Language = "hi"
-    to_phone_number: str = Field(..., description="E.164, e.g. +919426005911")
+    to_phone_number: str = Field(..., description="E.164, e.g. +919876543210")
     facts: CallFacts
     attempt: int = Field(1, ge=1, le=2, description="1 = first call, 2 = follow-up wording")
     rgid: Optional[str] = None
